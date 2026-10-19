@@ -41,7 +41,7 @@ Claude may be used through its Mac app for necessary design work with a focused 
 
 ## Completed this night
 
-First batch passed local diff review, all 103 tests, release compilation, and deep/strict app signature verification. It is being committed to the private repository; no new app update has been published. Version **0.4.3 / build 7** is reserved in `Config/Info.plist`.
+First batch passed local diff review, all 103 tests, release compilation, and deep/strict app signature verification. It was pushed to private `main` as **709e07d**; no new app update has been published. Version **0.4.3 / build 7** is reserved in `Config/Info.plist`.
 
 - Placeholder filling now preserves exactly what the user typed, never interprets inserted text as another field, and handles placeholders split across annotated segments. Invalid field tokens cannot replace ordinary words. Reproduced eight failing assertions before the fix.
 - Format lessons now distinguish output length from unrelated numbers and handle explicit alternatives. Checking lessons reject reversed day corrections, changed times, and requests not to correct the day. Reproduced nine failing assertions and retained the original exercise guidance for uncertain answers.
@@ -49,6 +49,8 @@ First batch passed local diff review, all 103 tests, release compilation, and de
 - Malformed optional annotations, fields, or exercises no longer discard an otherwise valid prompt and independently valid sibling metadata. Required prompt content still passes strict validation.
 - Credential reads now run off the main thread and cooperative executor. Account selection ignores late results from a previously selected account. Cancellation prevents delivery of late credentials. Storage permissions and credential contents are unchanged.
 - Baseline: 89 Swift tests passed. Latest full run: **103 tests passed** at 00:04. The malformed-stream regression reproduced three failures before its fix. Logs are under `Artifacts/overnight-*.log`.
+
+Second batch: malformed required prompt segments now fail validation rather than disappearing from the returned prompt; explicit unsupported schema versions are not silently rewritten; unused malformed clarification metadata is ignored, while a required clarification must remain valid. Seven assertions failed before these fixes; **106 Swift tests passed** afterward (`overnight-content-before.log`, `overnight-content-after.log`). Existing pipeline tests verify that validation failure triggers at most one announced repair and preserves the original input.
 
 ### Live validation blocker and candidate state
 

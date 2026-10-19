@@ -31,15 +31,16 @@ public enum CoachSanitizer {
 
     private static func normalizeShape(_ object: [String: Any]) -> [String: Any] {
         var result = object.filter { topLevelKeys.contains($0.key) }
-        result["schema_version"] = 1
+        if result["schema_version"] == nil { result["schema_version"] = 1 }
         for key in ["segments", "changes", "unknowns", "suggestions", "inputs"] where !(result[key] is [Any]) {
             result[key] = []
         }
         if !(result["coach_message"] is String) { result["coach_message"] = "" }
         if result["clarification"] is NSNull { result.removeValue(forKey: "clarification") }
         if result["exercise"] is NSNull { result.removeValue(forKey: "exercise") }
-        result["segments"] = (result["segments"] as? [Any] ?? []).compactMap { item -> [String: Any]? in
-            guard let segment = item as? [String: Any], let text = segment["text"] as? String else { return nil }
+        result["segments"] = (result["segments"] as? [Any] ?? []).map { item -> Any in
+            // Required prompt text must survive intact or fail validation; never accept a partial prompt.
+            guard let segment = item as? [String: Any], let text = segment["text"] as? String else { return item }
             return ["id": (segment["id"] as? String) ?? "", "text": text]
         }
         result["changes"] = (result["changes"] as? [Any] ?? []).compactMap { item -> [String: Any]? in
@@ -61,7 +62,9 @@ public enum CoachSanitizer {
         for key in ["unknowns", "suggestions"] {
             result[key] = (result[key] as? [Any] ?? []).compactMap { $0 as? String }
         }
-        if var clarification = result["clarification"] as? [String: Any] {
+        if result["status"] as? String != "needs_clarification" {
+            result.removeValue(forKey: "clarification")
+        } else if var clarification = result["clarification"] as? [String: Any] {
             clarification = clarification.filter { ["question", "optional"].contains($0.key) }
             if !(clarification["optional"] is Bool) { clarification["optional"] = false }
             result["clarification"] = clarification

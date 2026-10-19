@@ -105,4 +105,32 @@ final class CoachSanitizerTests: XCTestCase {
         XCTAssertThrowsError(try CoachValidator.decode(CoachSanitizer.clean("{invalid", original: original), original: original))
         XCTAssertThrowsError(try CoachValidator.decode(CoachSanitizer.clean("Kein JSON", original: original), original: original))
     }
+
+    func testMalformedPromptSegmentsCannotBeSilentlyDropped() throws {
+        for malformed: Any in [42, ["id": "lost", "text": false], ["id": "lost"]] {
+            var object = base
+            var segments = try XCTUnwrap(object["segments"] as? [Any])
+            segments.insert(malformed, at: 1)
+            object["segments"] = segments
+            XCTAssertThrowsError(try CoachValidator.decode(CoachSanitizer.clean(try answer(object), original: original), original: original))
+        }
+    }
+
+    func testExplicitUnsupportedSchemaIsNotRewrittenAsCurrent() throws {
+        for version: Any in [2, "future", true] {
+            var object = base
+            object["schema_version"] = version
+            XCTAssertThrowsError(try CoachValidator.decode(CoachSanitizer.clean(try answer(object), original: original), original: original))
+        }
+    }
+
+    func testUnusedMalformedClarificationDoesNotDiscardAValidPrompt() throws {
+        var object = base
+        object["clarification"] = ["question": 42]
+        let response = try CoachValidator.decode(CoachSanitizer.clean(try answer(object), original: original), original: original)
+        XCTAssertNil(response.clarification)
+        XCTAssertTrue(response.prompt.contains("Frau Berger"))
+        object["status"] = "needs_clarification"
+        XCTAssertThrowsError(try CoachValidator.decode(CoachSanitizer.clean(try answer(object), original: original), original: original))
+    }
 }
