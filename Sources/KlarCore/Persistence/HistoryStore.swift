@@ -131,23 +131,30 @@ public final class HistoryStore: @unchecked Sendable {
 
     public func exportData() throws -> Data {
         try synchronized {
-            struct Export: Encodable {
-                let schemaVersion: Int
-                let exportedAt: Date
-                let draft: String
-                let entries: [HistoryEntry]
-            }
             let statement = try prepare("SELECT value FROM metadata WHERE key='draft'")
             defer { sqlite3_finalize(statement) }
             let status = sqlite3_step(statement)
             guard status == SQLITE_ROW || status == SQLITE_DONE else { throw HistoryStoreError.unavailable }
             let draft = status == SQLITE_ROW ? String(data: data(statement, column: 0), encoding: .utf8) : ""
             guard let draft else { throw HistoryStoreError.invalidData }
-            let exportEncoder = JSONEncoder()
-            exportEncoder.dateEncodingStrategy = .iso8601
-            exportEncoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-            return try exportEncoder.encode(Export(schemaVersion: Self.schemaVersion, exportedAt: Date(), draft: draft, entries: try readEntries()))
+            return try Self.exportData(draft: draft, entries: readEntries())
         }
+    }
+
+    /// Also exports recoverable in-memory edits when disk writes are unavailable.
+    public static func exportData(draft: String, entries: [HistoryEntry], includesCompleteStoredHistory: Bool = true) throws -> Data {
+        struct Export: Encodable {
+            let schemaVersion: Int
+            let exportedAt: Date
+            let draft: String
+            let entries: [HistoryEntry]
+            let includesCompleteStoredHistory: Bool
+        }
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        return try encoder.encode(Export(schemaVersion: schemaVersion, exportedAt: Date(), draft: draft,
+                                         entries: entries, includesCompleteStoredHistory: includesCompleteStoredHistory))
     }
 
     private func synchronized<T>(_ body: () throws -> T) rethrows -> T { lock.lock(); defer { lock.unlock() }; return try body() }

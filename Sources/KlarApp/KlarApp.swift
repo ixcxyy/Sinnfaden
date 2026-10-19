@@ -17,7 +17,7 @@ struct KlarApp: App {
                 ContentView(model: model, profile: profile)
                     .frame(minWidth: 900, minHeight: 680)
                     .onAppear {
-                        delegate.beforeTermination = { model.cancel(); model.learning.cancelAll(); model.learning.flushPendingSave() }
+                        delegate.beforeTermination = { model.cancel(); model.flushPendingSaves(); model.learning.cancelAll(); model.learning.flushPendingSave() }
                         AppTour.start(model)
                     }
                     .tint(Color.klarBlue)

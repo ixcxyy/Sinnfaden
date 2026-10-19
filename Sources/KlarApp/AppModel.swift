@@ -65,6 +65,9 @@ final class AppModel: ObservableObject {
     private var activeAttempt: UUID?
     private var currentEntry: HistoryEntry?
     private var observedAccount = "local"
+    // Failed writes survive navigation, but never cross account boundaries.
+    private var pendingEntries: [String: [UUID: HistoryEntry]] = [:]
+    private var pendingDrafts: [String: String] = [:]
     private var subscriptions = Set<AnyCancellable>()
     private static let log = Logger(subsystem: "at.klar.promptcoach", category: "coach")
 
@@ -104,9 +107,14 @@ final class AppModel: ObservableObject {
 
     private func synchronizeAccount() {
         let account = isDemo ? "demonstration" : (connection.accountID ?? "local")
+        switchStorageAccount(to: account)
+    }
+
+    func switchStorageAccount(to account: String) {
         guard observedAccount != account else { return }
         let anonymousDraft = observedAccount == "local" ? draft : nil
         cancel()
+        flushPendingSaves()
         response = nil; editedPrompt = ""; submittedOriginal = ""; currentEntry = nil
         showExercise = false; exerciseAnswer = ""; exerciseFeedback = ""; errorMessage = nil
         openStore(account: account)
@@ -118,20 +126,71 @@ final class AppModel: ObservableObject {
         observedAccount = account
         learning.switchAccount(account)
         loadingStore = true
-        defer { loadingStore = false }
         store = nil; draft = ""; history = []
         do {
             let next = try HistoryStore(accountID: account, baseURL: storageBaseURL)
-            draft = try next.loadDraft()
-            history = try next.entries()
+            let savedDraft = try next.loadDraft()
+            let savedEntries = try next.entries()
+            draft = savedDraft
+            history = savedEntries
             store = next
-            storageError = nil
-        } catch { diagnostics.record(error, area: .history); storageError = "Deine lokalen Daten konnten nicht geöffnet werden. Sie wurden nicht überschrieben." }
+        } catch { diagnostics.record(error, area: .history) }
+        if let pending = pendingDrafts[account] { draft = pending }
+        for entry in (pendingEntries[account] ?? [:]).values { upsertHistory(entry) }
+        loadingStore = false
+        flushPendingSaves()
     }
 
     private func persistDraft() {
-        do { try store?.saveDraft(draft) }
-        catch { diagnostics.record(error, area: .history); storageError = "Dein Entwurf konnte nicht lokal gespeichert werden. Bitte kopiere ihn, bevor du Sinnfaden schließt." }
+        pendingDrafts[observedAccount] = draft
+        if let store {
+            do {
+                try store.saveDraft(draft)
+                pendingDrafts.removeValue(forKey: observedAccount)
+            } catch { diagnostics.record(error, area: .history) }
+        }
+        updateStorageWarning()
+    }
+
+    func flushPendingSaves() {
+        if let store {
+            if let draft = pendingDrafts[observedAccount] {
+                do {
+                    try store.saveDraft(draft)
+                    pendingDrafts.removeValue(forKey: observedAccount)
+                } catch { diagnostics.record(error, area: .history) }
+            }
+            for entry in (pendingEntries[observedAccount] ?? [:]).values {
+                persistEntry(entry, in: store)
+            }
+        }
+        updateStorageWarning()
+    }
+
+    private func updateStorageWarning() {
+        if store == nil {
+            storageError = "Deine lokalen Daten konnten nicht geöffnet werden. Sie wurden nicht überschrieben. Exportiere deine neuen Texte vor dem Schließen."
+        } else if pendingDrafts[observedAccount] != nil || pendingEntries[observedAccount]?.isEmpty == false {
+            storageError = "Einige Texte sind noch nicht lokal gespeichert. Sie bleiben während dieser Sitzung erhalten. Exportiere deinen Verlauf vor dem Schließen."
+        } else if !pendingDrafts.isEmpty || !pendingEntries.isEmpty {
+            storageError = "In einem anderen Konto sind noch Texte ungespeichert. Wechsle dorthin und exportiere sie vor dem Schließen."
+        } else { storageError = nil }
+    }
+
+    private func upsertHistory(_ entry: HistoryEntry) {
+        if let index = history.firstIndex(where: { $0.id == entry.id }) { history[index] = entry }
+        else {
+            history.append(entry)
+            history.sort { $0.createdAt == $1.createdAt ? $0.id.uuidString > $1.id.uuidString : $0.createdAt > $1.createdAt }
+        }
+    }
+
+    private func persistEntry(_ entry: HistoryEntry, in store: HistoryStore) {
+        do {
+            try store.save(entry)
+            pendingEntries[observedAccount]?.removeValue(forKey: entry.id)
+            if pendingEntries[observedAccount]?.isEmpty == true { pendingEntries.removeValue(forKey: observedAccount) }
+        } catch { diagnostics.record(error, area: .history) }
     }
 
     func improve(clarification: Bool = false, skip: Bool = false) {
@@ -319,14 +378,18 @@ final class AppModel: ObservableObject {
            draft != entry.original, draft != currentEntry?.original {
             guard let store else { storageError = "Dein aktueller Entwurf kann nicht gesichert werden und bleibt geöffnet."; return }
             do {
-                try store.save(HistoryEntry(original: draft, outcome: "draft"))
-                history = try store.entries()
+                let archivedDraft = HistoryEntry(original: draft, outcome: "draft")
+                try store.save(archivedDraft)
+                upsertHistory(archivedDraft)
             } catch {
                 storageError = "Dein aktueller Entwurf konnte nicht gesichert werden. Er bleibt geöffnet."
                 return
             }
         }
-        cancel(); currentEntry = entry; draft = entry.original; submittedOriginal = entry.original
+        cancel()
+        // A row captured before a failed save may be stale; the recovery copy is authoritative.
+        let entry = pendingEntries[observedAccount]?[entry.id] ?? entry
+        currentEntry = entry; draft = entry.original; submittedOriginal = entry.original
         response = entry.response
         // Equal responses can belong to different history entries with different answers.
         restoreInputValues(entry.inputValues)
@@ -341,32 +404,39 @@ final class AppModel: ObservableObject {
     func saveCurrent() {
         if let response, currentEntry?.response == response { currentEntry?.inputValues = inputValues }
         guard let entry = currentEntry else { return }
-        guard let store else { storageError = "Dieser Eintrag kann nur im Fenster bleiben. Bitte kopiere deinen Text vor dem Schließen."; return }
-        do {
-            try store.save(entry)
-            // Editing a field should not decode the entire history on every keystroke.
-            if let index = history.firstIndex(where: { $0.id == entry.id }) { history[index] = entry }
-            else {
-                history.append(entry)
-                history.sort { $0.createdAt == $1.createdAt ? $0.id.uuidString > $1.id.uuidString : $0.createdAt > $1.createdAt }
-            }
-        }
-        catch { storageError = "Dieser Eintrag konnte nicht gespeichert werden. Dein Text bleibt im Fenster erhalten." }
+        pendingEntries[observedAccount, default: [:]][entry.id] = entry
+        // Retain edits even if SQLite fails, without decoding history on every keystroke.
+        upsertHistory(entry)
+        if let store { persistEntry(entry, in: store) }
+        updateStorageWarning()
     }
 
     func deleteHistory() {
         guard let store else { storageError = "Der lokale Verlauf ist nicht zugänglich und konnte nicht gelöscht werden."; return }
         cancel()
-        do { try store.deleteAll(); history = []; newPrompt() }
+        do {
+            try store.deleteAll()
+            pendingEntries.removeValue(forKey: observedAccount)
+            pendingDrafts.removeValue(forKey: observedAccount)
+            history = []; newPrompt()
+        }
         catch { storageError = "Der Verlauf konnte nicht vollständig gelöscht werden." }
     }
 
     func exportHistory() {
+        let data: Data
+        do { data = try historyExportData() }
+        catch { storageError = "Der Export konnte nicht vorbereitet werden."; return }
         let panel = NSSavePanel()
         panel.nameFieldStringValue = "Sinnfaden-Verlauf.json"
         panel.allowedContentTypes = [.json]
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        do { guard let data = try store?.exportData() else { return }; try data.write(to: url, options: .atomic) }
+        do { try data.write(to: url, options: .atomic) }
         catch { storageError = "Der Export konnte nicht gespeichert werden." }
+    }
+
+    func historyExportData() throws -> Data {
+        flushPendingSaves()
+        return try HistoryStore.exportData(draft: draft, entries: history, includesCompleteStoredHistory: store != nil)
     }
 }
