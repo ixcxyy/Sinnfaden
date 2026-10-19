@@ -64,7 +64,7 @@ Apple's normal Developer ID/notarization route requires a paid Apple Developer P
 
 - Both Workers deployed successfully on the Free plan.
 - The live HTTPS feed and archive were downloaded; both Ed25519 signatures and the archive's declared length passed verification.
-- Sparkle displayed the 0.4.2 update to a separate 0.4.1 test copy, downloaded and extracted it, and reached **Ready to Install**. Final file replacement is currently waiting inside macOS; full installation/relaunch is not yet verified. No security protection was disabled.
+- Sparkle displayed the 0.4.2 update to a separate 0.4.1 test copy, downloaded and extracted it, and reached **Ready to Install**. The file-replacement step stalled inside macOS, and the test processes were stopped; full installation/relaunch is not yet verified. No security protection was disabled.
 - Five release-staging tests and ten relay tests pass. The local release app passed deep/strict code-sign verification; its development DMG checksum is valid.
 - GitHub issue delivery remains pending the owner entering the scoped token into the private setup prompt. No synthetic issue has been sent yet.
 
