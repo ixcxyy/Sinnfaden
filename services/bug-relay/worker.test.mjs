@@ -58,7 +58,7 @@ test('creates one private issue even when requests overlap', async t => {
   const body = JSON.parse(calls.find(call => call.init.method === 'POST').init.body);
   assert.match(body.body, /No prompts/);
   assert.ok(!body.body.includes('SERVER-ONLY'));
-  assert.equal(calls[0].init.redirect, 'error');
+  assert.equal(calls[0].init.redirect, 'manual');
 });
 
 test('public repository never receives an issue', async t => {
@@ -113,4 +113,45 @@ test('definite GitHub rejection can recover after permissions are corrected', as
   assert.equal((await inbox.fetch(request())).status, 503);
   assert.equal((await inbox.fetch(request())).status, 201);
   assert.equal(posts, 2);
+});
+
+test('operational logs contain only fixed failure metadata, never report or error text', async t => {
+  const logs = [];
+  t.mock.method(console, 'error', line => logs.push(JSON.parse(line)));
+  t.mock.method(globalThis, 'fetch', async () => Response.json({ message: 'SERVER-ONLY private error text' }, { status: 401 }));
+  assert.equal((await new BugInbox(state(), env).fetch(request())).status, 503);
+  assert.deepEqual(logs, [
+    { event: 'report_delivery_failed', stage: 'github_read', kind: 'unavailable', githubStatus: 401 },
+    { event: 'report_delivery_failed', stage: 'github_repository', kind: 'unavailable', githubStatus: 401 },
+  ]);
+  logs.length = 0;
+  const config = { ...env, INBOX: {}, REPORT_RATE_LIMIT: { limit: async () => { throw new TypeError('SERVER-ONLY private error text'); } } };
+  assert.equal((await worker.fetch(request(), config)).status, 503);
+  assert.deepEqual(logs, [{ event: 'report_delivery_failed', stage: 'rate_limit', kind: 'type_error', githubStatus: null }]);
+});
+
+test('GitHub redirects are rejected without forwarding the token or creating an issue', async t => {
+  let calls = 0;
+  t.mock.method(console, 'error', () => {});
+  t.mock.method(globalThis, 'fetch', async (url, init) => {
+    calls++;
+    assert.equal(url, 'https://api.github.com/repos/owner/private');
+    assert.equal(init.redirect, 'manual');
+    return new Response(null, { status: 302, headers: { Location: 'https://unexpected.example/collect' } });
+  });
+  assert.equal((await new BugInbox(state(), env).fetch(request())).status, 503);
+  assert.equal(calls, 1);
+});
+
+test('pasted token whitespace is trimmed while embedded control characters fail closed', async t => {
+  let calls = 0;
+  t.mock.method(console, 'error', () => {});
+  t.mock.method(globalThis, 'fetch', async (_, init) => {
+    calls++;
+    assert.equal(init.headers.Authorization, 'Bearer SERVER-ONLY');
+    return Response.json({ private: true });
+  });
+  assert.deepEqual(await new BugInbox(state(), { ...env, GITHUB_TOKEN: ' SERVER-ONLY\n' }).github(''), { private: true });
+  assert.equal((await new BugInbox(state(), { ...env, GITHUB_TOKEN: 'SERVER\nONLY' }).fetch(request())).status, 503);
+  assert.equal(calls, 1);
 });

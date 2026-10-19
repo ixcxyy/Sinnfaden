@@ -32,7 +32,7 @@ The connected ChatGPT account can be used to help understand an exported technic
 
 ## Activate private GitHub delivery
 
-The report destination is **[ixcxyy/Sinnfaden](https://github.com/ixcxyy/Sinnfaden)**. Its private visibility and enabled Issues were verified through GitHub's authenticated API on 19 October 2026. The relay is deployed; delivery verification is pending the repository-scoped token.
+The report destination is **[ixcxyy/Sinnfaden](https://github.com/ixcxyy/Sinnfaden)**. Its private visibility and enabled Issues were verified through GitHub's authenticated API on 19 October 2026. The relay and repository-scoped token are live. [Setup test #1](https://github.com/ixcxyy/Sinnfaden/issues/1) verified delivery, duplicate grouping, and the production Swift client's acknowledgement handling; the synthetic issue is closed. Automatic reporting and update checks are enabled in the owner's running app.
 
 1. The private repository and Issues are ready. Keep this repository private: the relay refuses to create reports in a public repository.
 2. Create a fine-grained GitHub token restricted to that repository with Issues read/write and the default Metadata read access. Keep it only as the relay's `GITHUB_TOKEN` secret. It must never appear in the Mac app or source control. GitHub App installation tokens can replace it later.

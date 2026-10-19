@@ -32,8 +32,10 @@ See [maintenance and activation guide](MAINTENANCE.md) for the private GitHub is
 
 ## Activation follow-up
 
-Repository setup follow-up: the user supplied [ixcxyy/Sinnfaden](https://github.com/ixcxyy/Sinnfaden), verified private with Issues enabled. The working folder now has that Git origin, and the relay configuration targets it. No diagnostic issue has been sent.
+Repository setup follow-up: the user supplied [ixcxyy/Sinnfaden](https://github.com/ixcxyy/Sinnfaden), verified private with Issues enabled. The working folder has that Git origin, and the live relay targets it. [Synthetic setup issue #1](https://github.com/ixcxyy/Sinnfaden/issues/1) verified live issue creation and duplicate grouping, then was marked as a test and closed. The production Swift delivery client also received the live acknowledgement.
 
-The relay and static update host are now deployed on Cloudflare Free, and a project-specific Sparkle key is in the Mac Keychain. Version 0.4.2/build 6 is published with signed archives and feed. GitHub token setup and live delivery verification are still pending. Apple signing/notarization remains intentionally unconfigured. See [free hosting operations](FREE-HOSTING.md) for current setup and verification. The user’s live ChatGPT connection was not used for test requests or signed out.
+The relay and static update host are deployed on Cloudflare Free, and a project-specific Sparkle key is in the Mac Keychain. Version 0.4.2/build 6 is published with signed archives and feed; actual installation and relaunch from build 5 were verified. The scoped GitHub token is stored in Cloudflare, and reporting and update checks are enabled in the owner's running app. Apple signing/notarization remains intentionally unconfigured. See [free hosting operations](FREE-HOSTING.md) for current setup and verification. The user’s live ChatGPT connection was not used for test requests or signed out.
+
+Live testing found and fixed a relay runtime incompatibility missed by Node-based mocks: Cloudflare does not support `redirect: 'error'`. Requests now use `manual`, reject redirect responses, and never forward the GitHub credential. Thirteen relay tests pass, including redirect rejection and privacy-safe operational diagnostics. No Mac app rebuild is needed for this server-side fix.
 
 Reports cover handled errors, not native crash dumps. A report identifies a technical failure group and app build, but does not automatically provide reproduction steps or fix code. Review and validation remain required before releasing a patch.
