@@ -18,14 +18,22 @@ public struct ComparisonPlan: Codable, Equatable, Sendable {
 
     /// Reconstructs one literal edit only when its location and sentence boundaries are unambiguous.
     /// Never silently labels an entire rewrite as an isolated change.
-    public static func make(original: String, response: CoachResponse, changeID: String? = nil) throws -> ComparisonPlan {
+    public static func make(original: String, response: CoachResponse, changeID: String? = nil, inputValues: [String: String] = [:]) throws -> ComparisonPlan {
         try CoachValidator.validate(response, original: original)
         guard response.status == .improved else {
             throw LearningDataError.invalid("Für einen Vergleich braucht es einen tatsächlich geänderten Vorschlag.")
         }
+        // Validate the annotated source first; inserted answers are user text, not new schema metadata.
+        let response = response.filled(with: inputValues)
+        guard response.prompt != original, CoachValidator.safeText(response.prompt, limit: 48_000) else {
+            throw LearningDataError.invalid("Der ausgefüllte Vorschlag ist unverändert, zu lang oder enthält ungültige Steuerzeichen.")
+        }
         let change = changeID.flatMap { id in response.changes.first { $0.id == id } }
         let criterion = comparisonCriterion(change?.category)
         if let change, let variant = isolatedVariant(original: original, response: response, change: change), variant != original {
+            guard CoachValidator.safeText(variant, limit: 48_000) else {
+                throw LearningDataError.invalid("Der einzelne Vergleich ist zu lang oder enthält ungültige Steuerzeichen.")
+            }
             return ComparisonPlan(kind: .isolated, baseline: original, variant: variant, criterion: criterion,
                                   title: change.title, note: "Nur die ausgewählte Textänderung unterscheidet die beiden Prompts. Ein Antwortpaar ist ein Beispiel; Antworten können bei Wiederholung variieren.", changeID: change.id)
         }

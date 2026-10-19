@@ -101,10 +101,10 @@ final class LearningWorkspace: ObservableObject {
         writeCurrentState()
     }
 
-    func prepareComparison(original: String, response: CoachResponse, change: PromptChange) {
+    func prepareComparison(original: String, response: CoachResponse, change: PromptChange, inputValues: [String: String] = [:]) {
         guard connection.canGenerate, !connection.selectedModel.isEmpty else { errorMessage = "Verbinde zuerst ein Konto und wähle ein verfügbares Modell für den Vergleich."; return }
         do {
-            let plan = try ComparisonPlan.make(original: original, response: response, changeID: change.id)
+            let plan = try ComparisonPlan.make(original: original, response: response, changeID: change.id, inputValues: inputValues)
             let run = ComparisonRun(plan: plan, model: connection.selectedModel)
             state.comparisons.insert(run, at: 0); selectedComparison = run.id; errorMessage = nil
         } catch { errorMessage = "Diese Änderung kann nicht sicher verglichen werden. Der Vorschlag bleibt erhalten." }

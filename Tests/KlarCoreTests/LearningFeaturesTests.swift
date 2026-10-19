@@ -27,6 +27,30 @@ final class LearningFeaturesTests: XCTestCase {
         XCTAssertTrue(plan.criterion.contains("Länge"))
     }
 
+    func testComparisonUsesFilledAnswersForIsolatedAndWholePromptPlans() throws {
+        let original = "Erkläre Regen in drei Sätzen."
+        var response = replacementFixture(target: "in [Anzahl] Sätzen")
+        response.inputs = [PromptInput(id: "length", label: "Länge", kind: .text, placeholder: "[Anzahl]", why: "Wähle die Länge.")]
+        let values = ["length": "fünf"]
+        let isolated = try ComparisonPlan.make(original: original, response: response, changeID: "c1", inputValues: values)
+        XCTAssertEqual(isolated.kind, .isolated)
+        XCTAssertEqual(isolated.variant, "Erkläre Regen in fünf Sätzen.")
+        XCTAssertEqual(isolated.baseline, original)
+        let whole = try ComparisonPlan.make(original: original, response: response, inputValues: values)
+        XCTAssertEqual(whole.kind, .wholePrompt)
+        XCTAssertEqual(whole.variant, response.filled(with: values).prompt)
+        XCTAssertTrue(response.prompt.contains("[Anzahl]"), "Preparing a comparison must not rewrite the saved response")
+    }
+
+    func testComparisonRejectsFilledIdentityAndOversizedOrInvalidFieldText() throws {
+        let original = "Erkläre Regen in drei Sätzen."
+        var response = replacementFixture(target: "in [Anzahl] Sätzen")
+        response.inputs = [PromptInput(id: "length", label: "Länge", kind: .text, placeholder: "[Anzahl]", why: "Wähle die Länge.")]
+        for value in ["drei", String(repeating: "a", count: 48_001), "fünf\u{0000}"] {
+            XCTAssertThrowsError(try ComparisonPlan.make(original: original, response: response, changeID: "c1", inputValues: ["length": value]))
+        }
+    }
+
     func testRepeatedOriginalAndChangedClauseBoundariesUseExplicitWholeComparison() throws {
         let repeated = "Erkläre Regen in drei Sätzen. Erkläre Schnee in drei Sätzen."
         let repeatedPlan = try ComparisonPlan.make(original: repeated, response: replacementFixture(original: repeated), changeID: "c1")

@@ -330,7 +330,7 @@ final class AppModel: ObservableObject {
 
     func compare(_ change: PromptChange) {
         guard let response, !manuallyEdited else { return }
-        learning.prepareComparison(original: submittedOriginal, response: response, change: change); page = .laboratory
+        learning.prepareComparison(original: submittedOriginal, response: response, change: change, inputValues: inputValues); page = .laboratory
     }
 
     func saveVisibleRecipe() { learning.createRecipe(from: visiblePrompt); page = .recipes }
