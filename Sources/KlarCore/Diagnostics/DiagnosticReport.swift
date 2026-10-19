@@ -96,8 +96,12 @@ public final class DiagnosticJournal: ObservableObject {
     public func record(_ error: Error, area: DiagnosticArea, now: Date = Date()) {
         guard var report = DiagnosticReport(error: error, area: area, version: version, build: build, now: now) else { return }
         reports.removeAll { $0.lastSeen < now.addingTimeInterval(-retention) }
-        // At most one remotely queued event per category/build/day. Local counts retain repetitions.
-        if let index = reports.firstIndex(where: { $0.fingerprint == report.fingerprint && now.timeIntervalSince($0.firstSeen) < 86_400 }) {
+        // Deduplicate queued/acknowledged events for the day. A fresh error after consent
+        // gets its own report; earlier local reports and cancelled retries stay local.
+        if let index = reports.firstIndex(where: {
+            $0.fingerprint == report.fingerprint && now.timeIntervalSince($0.firstSeen) < 86_400 &&
+                !(automaticReportingEnabled && $0.delivery == .local)
+        }) {
             reports[index].lastSeen = now
             reports[index].occurrences = min(1_000_000, reports[index].occurrences + 1)
         } else {

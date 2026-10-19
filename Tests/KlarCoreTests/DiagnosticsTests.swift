@@ -57,6 +57,53 @@ final class DiagnosticsTests: XCTestCase {
         XCTAssertNil(journal.reports.first?.retryAfter)
     }
 
+    @MainActor func testEnablingReportingOnlyQueuesFreshOccurrencesOfAnExistingLocalError() throws {
+        let root = try directory()
+        let journal = DiagnosticJournal(directory: root, version: "0.4.1", build: "5")
+        var queuedIDs: [UUID] = []
+        journal.onNewReport = { if $0.delivery == .pending { queuedIDs.append($0.id) } }
+        journal.record(failure, area: .coach)
+        let local = try XCTUnwrap(journal.reports.first)
+
+        journal.automaticReportingEnabled = true
+        XCTAssertEqual(journal.reports, [local], "Consent alone must not queue old reports")
+        XCTAssertTrue(queuedIDs.isEmpty)
+        journal.record(failure, area: .coach)
+
+        let fresh = try XCTUnwrap(journal.reports.first)
+        XCTAssertNotEqual(fresh.id, local.id)
+        XCTAssertEqual(fresh.delivery, .pending)
+        XCTAssertEqual(journal.reports.last, local)
+        XCTAssertEqual(queuedIDs, [fresh.id], "Fresh occurrence must wake the delivery loop")
+        let reopened = DiagnosticJournal(directory: root, version: "0.4.1", build: "5")
+        XCTAssertEqual(reopened.reports, journal.reports)
+    }
+
+    @MainActor func testFreshErrorAfterConsentReturnsDoesNotInheritCancelledRetry() throws {
+        let journal = DiagnosticJournal(directory: try directory(), version: "0.4.1", build: "5")
+        journal.automaticReportingEnabled = true
+        journal.record(failure, area: .coach)
+        let oldID = try XCTUnwrap(journal.reports.first?.id)
+        journal.deferDelivery(oldID, minimumDelay: 86_400)
+        journal.automaticReportingEnabled = false
+        journal.automaticReportingEnabled = true
+        XCTAssertEqual(journal.reports.first?.delivery, .local)
+        journal.record(failure, area: .coach)
+        journal.record(failure, area: .coach)
+
+        let fresh = try XCTUnwrap(journal.reports.first)
+        XCTAssertNotEqual(fresh.id, oldID)
+        XCTAssertEqual(fresh.delivery, .pending)
+        XCTAssertEqual(fresh.attempts, 0)
+        XCTAssertNil(fresh.retryAfter)
+        XCTAssertEqual(fresh.occurrences, 2)
+        XCTAssertEqual(journal.reports.count, 2)
+        journal.markSent(fresh.id)
+        journal.record(failure, area: .coach)
+        XCTAssertEqual(journal.reports.first?.delivery, .sent)
+        XCTAssertEqual(journal.reports.count, 2, "Acknowledged errors still deduplicate for the day")
+    }
+
     @MainActor func testJournalIsBoundedAndCorruptionIsNotOverwritten() throws {
         let root = try directory()
         let journal = DiagnosticJournal(directory: root, version: "0.4.1", build: "5")
