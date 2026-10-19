@@ -7,7 +7,7 @@
   "observability": { "enabled": false },
   "vars": {
     "GITHUB_REPOSITORY": "ixcxyy/Sinnfaden",
-    "ALLOWED_RELEASES": "0.4.1+5",
+    "ALLOWED_RELEASES": "0.4.1+5,0.4.2+6",
     "MAX_NEW_ISSUES_PER_DAY": "20"
   },
   "durable_objects": { "bindings": [{ "name": "INBOX", "class_name": "BugInbox" }] },

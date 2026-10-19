@@ -1,6 +1,8 @@
 # Bug reports and app updates
 
-Implemented on 19 October 2026. Current package: **Sinnfaden 0.4.1, build 5**.
+Implemented on 19 October 2026. Current package: **Sinnfaden 0.4.2, build 6**.
+
+Deployment follow-up: the report relay and signed update host are now deployed on Cloudflare's **Free ($0)** plan. The signing key is in this Mac's Keychain. See [free hosting and release operations](FREE-HOSTING.md) for the live addresses, token setup and development-distribution limitations. The steps below also explain how to reconnect credentials or move to production signing later.
 
 ## What works locally
 
@@ -30,33 +32,33 @@ The connected ChatGPT account can be used to help understand an exported technic
 
 ## Activate private GitHub delivery
 
-The report destination is **[ixcxyy/Sinnfaden](https://github.com/ixcxyy/Sinnfaden)**. Its private visibility and enabled Issues were verified through GitHub's authenticated API on 19 October 2026. No diagnostic report has been sent remotely; the relay is not deployed yet.
+The report destination is **[ixcxyy/Sinnfaden](https://github.com/ixcxyy/Sinnfaden)**. Its private visibility and enabled Issues were verified through GitHub's authenticated API on 19 October 2026. The relay is deployed; delivery verification is pending the repository-scoped token.
 
 1. The private repository and Issues are ready. Keep this repository private: the relay refuses to create reports in a public repository.
 2. Create a fine-grained GitHub token restricted to that repository with Issues read/write and the default Metadata read access. Keep it only as the relay's `GITHUB_TOKEN` secret. It must never appear in the Mac app or source control. GitHub App installation tokens can replace it later.
-3. `services/bug-relay/wrangler.jsonc` already sets `GITHUB_REPOSITORY` to `ixcxyy/Sinnfaden`. `ALLOWED_RELEASES` is a comma-separated allowlist of `version+build`, initially `0.4.1+5`. Keep supported older releases while updating it. This reduces forged-report abuse; the public endpoint is not proof that a real installation generated a report.
-4. In that directory, run `npm ci`, `npm test`, and `npx wrangler deploy --dry-run`. Connect the intended Cloudflare account, set the secret using `npx wrangler secret put GITHUB_TOKEN`, and deploy with `npx wrangler deploy` when ready. Deployment/account setup is deliberately not done here.
-5. Set `KLAR_BUG_REPORT_URL=https://YOUR-WORKER.workers.dev/v1/reports` when building the app. Enable reporting in Settings → Updates & Fehler on each consenting installation.
+3. `services/bug-relay/wrangler.jsonc` already sets `GITHUB_REPOSITORY` to `ixcxyy/Sinnfaden`. `ALLOWED_RELEASES` is a comma-separated allowlist of `version+build`, currently `0.4.1+5,0.4.2+6`. Keep supported older releases while updating it. This reduces forged-report abuse; the public endpoint is not proof that a real installation generated a report.
+4. In that directory, run `npm ci`, `npm test`, and `npx wrangler deploy --dry-run`. Connect the intended Cloudflare account, set the secret using `npx wrangler secret put GITHUB_TOKEN`, and deploy with `npx wrangler deploy` when ready. The current account and relay are already deployed on Workers Free.
+5. The live reporting URL is already in `Config/Info.plist`; `KLAR_BUG_REPORT_URL` can override it when moving hosting. Enable reporting in Settings → Updates & Fehler on each consenting installation.
 6. Watch the private repository's Issues notifications in GitHub; email or mobile alerts are controlled by your GitHub account settings. These preferences were not changed here.
 
 The relay validates a strict payload, applies 10 requests/minute per edge IP, checks that the repository is private, and caps new issues at 20/day across the repository. A Durable Object serializes duplicate submissions. No GitHub token is returned to the app. Reports are unverified input: no issue automatically executes commands or triggers a release.
 
 If GitHub times out after an issue POST, the relay persists that uncertainty and looks for the report marker before trying anything else. If reconciliation cannot find the issue, it returns a retryable failure rather than blindly creating a duplicate. Inspect the repository and the corresponding Durable Object key before clearing an unresolved `creating` marker; otherwise leave it for investigation. Definite GitHub 4xx rejections can retry after permissions/rate limits are corrected. Repeated reports for an existing group do not create comments or reopen closed issues; a new app build forms a new group.
 
-This service uses Cloudflare Workers/Durable Objects. Hosting accounts, quotas and any charges are the owner's responsibility; no paid resource was provisioned.
+This service uses Cloudflare Workers/Durable Objects. The connected account is on Workers Free; quotas stop requests rather than incur overages. No paid resource was provisioned.
 
 ## Activate secure updates
 
-1. Set up a persistent HTTPS location for `appcast.xml` and release archives. Static object hosting is enough; the GitHub bug repository can remain private. Do not embed a private GitHub download token in the app.
-2. Generate a **project-specific** Sparkle signing key with `.build/artifacts/sparkle/Sparkle/bin/generate_keys`. Back up the private key securely; embed only the displayed public key. The tool uses the macOS Keychain. No signing key was created during this task.
-3. Supply both `KLAR_UPDATE_FEED_URL=https://YOUR-HOST/updates/appcast.xml` and `KLAR_UPDATE_PUBLIC_KEY=YOUR-PUBLIC-KEY` to the build. Optionally set `KLAR_VERSION` and `KLAR_BUILD_NUMBER`; the checked-in defaults are in `Config/Info.plist`. Always increase the build number.
-4. Use a Developer ID identity and notary profile with the existing `scripts/notarize.sh`. The packaging script embeds Sparkle, signs its helpers inside out, preserves helper entitlements, and removes build-machine framework search paths.
-5. Run `scripts/prepare-update.sh regular`, `major`, or `critical`. Optional `KLAR_RELEASE_NOTES` points to a Markdown file. This validates the signed/notarized bundle, prepares an archive, generates signed appcast/release notes and delta updates, and verifies the feed signature. It never uploads. The URL must end in `/appcast.xml` and archives are published beside it.
-6. Review and upload archives/notes/deltas first, then `appcast.xml` last. Do not modify a signed feed after generation. Test a real older installed release upgrading to the new one before a broad rollout.
+1. The static Cloudflare update Worker now hosts `appcast.xml` and release archives. The GitHub bug repository remains private. Do not embed a private GitHub download token in the app.
+2. The **project-specific** Sparkle signing key is now in the macOS Keychain under account `at.klar.promptcoach`. Back up the Keychain securely. Read the public key using `generate_keys --account at.klar.promptcoach -p`; do not generate a replacement for an established release line.
+3. The live feed and public key are in `Config/Info.plist`. The build supports `KLAR_UPDATE_FEED_URL` and `KLAR_UPDATE_PUBLIC_KEY` overrides. Optionally set `KLAR_VERSION` and `KLAR_BUILD_NUMBER`; the checked-in defaults are in `Config/Info.plist`. Always increase the build number.
+4. For production distribution, use a Developer ID identity and notary profile with the existing `scripts/notarize.sh`. The current free route uses ad hoc signing and explicitly skips notarization with `--development` at release preparation. The packaging script embeds Sparkle, signs its helpers inside out, preserves helper entitlements, and removes build-machine framework search paths.
+5. Run `scripts/prepare-update.sh regular --development` for the current free route, replacing `regular` with `major` or `critical` as appropriate. Omit `--development` for notarized production releases. Optional `KLAR_RELEASE_NOTES` points to a Markdown file. This validates the bundle and matching Keychain key, requires notarization in production mode, prepares an archive, generates signed appcast/release notes and delta updates, and verifies the feed signature. It never uploads. The URL must end in `/appcast.xml` and archives are published beside it.
+6. Run `python3 scripts/stage-updates.py` to verify signatures and the free hosting size limit, then deploy `services/update-host/wrangler.jsonc`. This uploads all assets before switching the active static deployment. For other hosting, upload archives/notes/deltas first, then `appcast.xml` last. Do not modify a signed feed after generation. Test a real older installed release upgrading to the new one before a broad rollout.
 
 Major releases use Sparkle's minimum-autoupdate version marker. Critical releases use its critical-update marker. Automatic checks default to enabled for a configured release, and users can turn them off. Downloads require confirmation for every update. The app can only update while it is running and can reach the feed; it is not a system-wide push service.
 
-The current development app is ad hoc signed. Developer ID, notarization, hosted feed, signing key and real old-to-new installation remain **unconfigured/unverified**. Existing 0.3/0.4 builds without Sparkle need one manual installation of this first updater-enabled release.
+The current development app is ad hoc signed, with a live hosted feed and Sparkle signing key. Apple Developer ID and notarization remain intentionally unconfigured to avoid a paid membership. First installation can require explicit macOS approval. See the deployment validation notes in the free-hosting guide. Existing 0.3/0.4 builds without Sparkle need one manual installation of this first updater-enabled release.
 
 ## Verification
 
@@ -64,6 +66,6 @@ The current development app is ad hoc signed. Developer ID, notarization, hosted
 - `npm test` in `services/bug-relay`: 10 tests pass (validation, privacy, duplicate concurrency, private-only issues, rate limiting, definite failures and uncertain POST recovery).
 - `npx wrangler deploy --dry-run`: validates/bundles the relay and all bindings without deploying.
 - Local Wrangler runtime returns `503 {"accepted":false}` when unconfigured.
-- Release app build and embedded framework code-sign verification pass. Full live GitHub delivery and real signed update installation require the activation steps above.
+- Release app build and embedded framework code-sign verification pass. The live deployment results are recorded in the free-hosting guide.
 
 Official references: [OpenAI sign-in limitations](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations), [Sparkle setup](https://sparkle-project.org/documentation/), [Sparkle release publishing](https://sparkle-project.org/documentation/publishing/), [GitHub issue API](https://docs.github.com/en/rest/issues/issues#create-an-issue), [Cloudflare rate limits](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/), [Durable Object storage](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/).

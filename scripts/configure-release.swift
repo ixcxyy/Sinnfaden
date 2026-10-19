@@ -15,8 +15,9 @@ for (variable, key) in [("KLAR_VERSION", "CFBundleShortVersionString"), ("KLAR_B
         plist[key] = value
     }
 }
-let feed = environment["KLAR_UPDATE_FEED_URL"], publicKey = environment["KLAR_UPDATE_PUBLIC_KEY"]
-if (feed != nil) != (publicKey != nil) { fail("Provide both the update feed URL and public signing key") }
+let feed = environment["KLAR_UPDATE_FEED_URL"] ?? plist["SUFeedURL"] as? String
+let publicKey = environment["KLAR_UPDATE_PUBLIC_KEY"] ?? plist["SUPublicEDKey"] as? String
+if feed != nil && publicKey == nil { fail("Provide a public signing key for the update feed") }
 for (variable, key) in [("KLAR_UPDATE_FEED_URL", "SUFeedURL"), ("KLAR_BUG_REPORT_URL", "SinnfadenBugReportURL")] {
     if let value = environment[variable] {
         guard let url = URL(string: value), url.scheme == "https", let host = url.host, !host.isEmpty,

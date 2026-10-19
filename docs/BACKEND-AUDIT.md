@@ -30,10 +30,10 @@ See [maintenance and activation guide](MAINTENANCE.md) for the private GitHub is
 - Native UI checked in an isolated demo bundle: version 0.4.1/build 5, new settings section, disabled unconfigured delivery controls, and an explicit “updates not configured” dialog.
 - Screenshot: `Artifacts/Maintenance-settings.png`.
 
-## Remaining activation and test gaps
+## Activation follow-up
 
 Repository setup follow-up: the user supplied [ixcxyy/Sinnfaden](https://github.com/ixcxyy/Sinnfaden), verified private with Issues enabled. The working folder now has that Git origin, and the relay configuration targets it. No diagnostic issue has been sent.
 
-Relay deployment, a scoped reporting token, an update host, a Sparkle signing key and production signing/notarization remain unconfigured. No app update has been published. Real GitHub delivery and an old-to-new signed installation still need those resources and a staging check. The user’s live ChatGPT connection was not used for test requests or signed out.
+The relay and static update host are now deployed on Cloudflare Free, and a project-specific Sparkle key is in the Mac Keychain. Version 0.4.2/build 6 is published with signed archives and feed. GitHub token setup and live delivery verification are still pending. Apple signing/notarization remains intentionally unconfigured. See [free hosting operations](FREE-HOSTING.md) for current setup and verification. The user’s live ChatGPT connection was not used for test requests or signed out.
 
 Reports cover handled errors, not native crash dumps. A report identifies a technical failure group and app build, but does not automatically provide reproduction steps or fix code. Review and validation remain required before releasing a patch.

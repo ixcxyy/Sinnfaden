@@ -4,7 +4,7 @@
 
 ## Starten
 
-Die gebaute App liegt unter `Artifacts/Sinnfaden.app`, das Installationsabbild unter `Artifacts/Sinnfaden-0.4.1-arm64-development.dmg`. Der Entwicklungsbuild ist lokal ad hoc signiert. Für reguläre Weitergabe fehlen Developer-ID-Signatur und Notarisierung; siehe [Installation](docs/INSTALLATION.md).
+Die gebaute App liegt unter `Artifacts/Sinnfaden.app`, das Installationsabbild unter `Artifacts/Sinnfaden-0.4.2-arm64-development.dmg`. Der Entwicklungsbuild ist lokal ad hoc signiert. Für reguläre Weitergabe fehlen Developer-ID-Signatur und Notarisierung; siehe [Installation](docs/INSTALLATION.md).
 
 ## Enthalten
 

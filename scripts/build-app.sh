@@ -3,7 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 KLAR_ARCH="${KLAR_ARCH:-$(uname -m)}"
 KLAR_CONFIG="${KLAR_CONFIG:-release}"
-KLAR_APP="$PWD/Artifacts/Sinnfaden.app"
+KLAR_APP="${KLAR_APP_PATH:-$PWD/Artifacts/Sinnfaden.app}"
 mkdir -p "$KLAR_APP/Contents/MacOS" "$KLAR_APP/Contents/Resources"
 # Generate the source artwork before SwiftPM packages the resource bundle.
 swift scripts/make-icon.swift "$KLAR_APP/Contents/Resources"

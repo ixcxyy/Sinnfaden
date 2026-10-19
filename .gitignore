@@ -12,3 +12,5 @@ docs/brand-source/
 services/bug-relay/node_modules/
 services/bug-relay/.wrangler/
 services/bug-relay/.dev.vars
+services/update-host/.wrangler/
+__pycache__/

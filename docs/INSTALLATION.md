@@ -1,6 +1,6 @@
 # Sinnfaden installieren
 
-1. Öffne `Sinnfaden-0.4.1-arm64-development.dmg`.
+1. Öffne `Sinnfaden-0.4.2-arm64-development.dmg`.
 2. Ziehe `Sinnfaden.app` in den angezeigten Ordner „Programme“.
 3. Öffne Sinnfaden und verwende in den Einstellungen die offizielle ChatGPT-Anmeldung, sofern keine bestehende Verbindung wiederhergestellt wurde.
 
