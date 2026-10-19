@@ -28,7 +28,12 @@ public struct PromptRecipe: Codable, Identifiable, Equatable, Sendable {
         self.fields = fields; self.values = values; self.version = version
     }
 
-    public func render() -> RecipeRender {
+    private static let fieldExpression = try! NSRegularExpression(pattern: "\\{\\{([^{}]+)\\}\\}")
+
+    /// Saved field answers may still need editing; malformed template definitions must never be saved.
+    public func definitionValidationErrors() -> [String] { analyzeTemplate().errors }
+
+    private func analyzeTemplate() -> (errors: [String], source: NSString, matches: [NSTextCheckingResult], definitions: [String: RecipeField]) {
         var errors: [String] = []
         let ids = fields.map(\.id)
         if title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { errors.append("Gib dem Rezept einen Namen.") }
@@ -41,38 +46,57 @@ public struct PromptRecipe: Codable, Identifiable, Equatable, Sendable {
                 errors.append("Eine Feldkennung oder Feldbezeichnung ist ungültig.")
             }
         }
-        let expression = try! NSRegularExpression(pattern: "\\{\\{([^{}]+)\\}\\}")
         let source = template as NSString
-        let matches = expression.matches(in: template, range: NSRange(location: 0, length: source.length))
+        // Avoid parsing arbitrarily large invalid templates before reporting their size error.
+        guard template.utf16.count <= 48_000 else { return (errors, source, [], [:]) }
+        let matches = Self.fieldExpression.matches(in: template, range: NSRange(location: 0, length: source.length))
         let referenced = matches.map { source.substring(with: $0.range(at: 1)) }
         let definitions = fields.reduce(into: [String: RecipeField]()) { result, field in result[field.id] = field }
         for reference in Set(referenced) where definitions[reference] == nil { errors.append("Für {{\(reference)}} fehlt ein Feld.") }
         for field in fields where !referenced.contains(field.id) { errors.append("Das Feld „\(field.label)“ kommt in der Vorlage nicht vor.") }
+        let scrubbed = Self.fieldExpression.stringByReplacingMatches(in: template, range: NSRange(location: 0, length: source.length), withTemplate: "")
+        if scrubbed.contains("{{") || scrubbed.contains("}}") { errors.append("Ein Platzhalter ist unvollständig. Verwende zum Beispiel {{ziel}}.") }
+        return (errors, source, matches, definitions)
+    }
+
+    public func render() -> RecipeRender {
+        let (errors, source, matches, definitions) = analyzeTemplate()
+        func invalid(_ messages: [String]) -> RecipeRender {
+            // Keep the source editable, but never expand or hand off an invalid/oversized preview.
+            RecipeRender(text: source.length <= 48_000 ? template : "", missingRequired: [], unknownFields: [], validationErrors: messages)
+        }
+        guard errors.isEmpty else { return invalid(errors) }
+        let tooLong = ["Der ausgefüllte Prompt ist zu lang."]
+        guard !values.values.contains(where: { $0.utf16.count > 24_000 }) else { return invalid(tooLong) }
         var output = ""
+        var outputLength = 0
+        func append(_ text: String) -> Bool {
+            let length = text.utf16.count
+            guard length <= 48_000 - outputLength else { return false }
+            output += text; outputLength += length
+            return true
+        }
         var offset = 0
         var missing: [String] = []
         var unknown: [String] = []
         for match in matches {
-            output += source.substring(with: NSRange(location: offset, length: match.range.location - offset))
+            guard append(source.substring(with: NSRange(location: offset, length: match.range.location - offset))) else { return invalid(tooLong) }
             let id = source.substring(with: match.range(at: 1))
             if let field = definitions[id] {
                 let raw = values[id] ?? ""
                 let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
                 if value.isEmpty {
-                    output += "[\(field.label) noch offen]"
+                    guard append("[\(field.label) noch offen]") else { return invalid(tooLong) }
                     if field.required && !missing.contains(field.label) { missing.append(field.label) }
                     if !unknown.contains(field.label) { unknown.append(field.label) }
                 } else {
-                    output += raw
+                    guard append(raw) else { return invalid(tooLong) }
                     if value.hasPrefix("[") && value.hasSuffix("]") && !unknown.contains(field.label) { unknown.append(field.label) }
                 }
-            } else { output += source.substring(with: match.range) }
+            } else if !append(source.substring(with: match.range)) { return invalid(tooLong) }
             offset = NSMaxRange(match.range)
         }
-        output += source.substring(from: offset)
-        let scrubbed = expression.stringByReplacingMatches(in: template, range: NSRange(location: 0, length: source.length), withTemplate: "")
-        if scrubbed.contains("{{") || scrubbed.contains("}}") { errors.append("Ein Platzhalter ist unvollständig. Verwende zum Beispiel {{ziel}}.") }
-        if output.utf16.count > 48_000 || values.values.contains(where: { $0.utf16.count > 24_000 }) { errors.append("Der ausgefüllte Prompt ist zu lang.") }
+        guard append(source.substring(from: offset)) else { return invalid(tooLong) }
         return RecipeRender(text: output, missingRequired: missing, unknownFields: unknown, validationErrors: errors)
     }
 

@@ -226,7 +226,9 @@ public final class LearningStore: @unchecked Sendable {
               Set(state.lessonAttempts.map(\.id)).count == state.lessonAttempts.count,
               Set(state.comparisons.map(\.id)).count == state.comparisons.count else { throw LearningDataError.invalid("Die Lernsammlung enthält doppelte Kennungen.") }
         for recipe in state.recipes + state.recipeVersions {
-            guard recipe.render().validationErrors.isEmpty else { throw LearningDataError.invalid("Eine Rezeptvorlage ist ungültig. Die vorhandene Datei bleibt erhalten.") }
+            // A temporarily oversized field is an editable draft, not corruption of the entire collection.
+            // Rendering still blocks its use; the file-size limit bounds stored drafts.
+            guard recipe.definitionValidationErrors().isEmpty else { throw LearningDataError.invalid("Eine Rezeptvorlage ist ungültig. Die vorhandene Datei bleibt erhalten.") }
         }
         for run in state.comparisons {
             guard !run.model.isEmpty, run.plan.baseline.utf16.count <= 48_000, run.plan.variant.utf16.count <= 48_000,

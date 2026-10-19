@@ -227,6 +227,59 @@ final class LearningFeaturesTests: XCTestCase {
         XCTAssertEqual(rendered.text, "Für [Empfänger noch offen]:\nGrüße 👩🏽‍💻\n& # + % \"Zitat\" {{person}}")
     }
 
+    func testOversizedRecipeDraftDoesNotBlockSavingUnrelatedLearningWork() throws {
+        let store = try LearningStore(accountID: "recipe-draft", baseURL: temporaryDirectory())
+        let recipe = PromptRecipe(title: "Textvorlage", template: "Fasse {{text}} zusammen.",
+                                  fields: [RecipeField(id: "text", label: "Ausgangstext")],
+                                  values: ["text": String(repeating: "a", count: 24_001)])
+        XCTAssertFalse(recipe.render().isReady)
+        let state = LearningState(recipes: [recipe], lessonDrafts: ["goal": "Unabhängige Lernantwort"],
+                                  followUp: FollowUpDraft(answer: "Unabhängiger Folgeentwurf"))
+        XCTAssertNoThrow(try store.save(state))
+        var restored = try store.load()
+        XCTAssertTrue(restored.recipes.first?.values["text"] == recipe.values["text"], "Preserve the complete oversized draft")
+        XCTAssertEqual(restored.lessonDrafts["goal"], "Unabhängige Lernantwort")
+        XCTAssertEqual(restored.followUp.answer, "Unabhängiger Folgeentwurf")
+        if !restored.recipes.isEmpty { restored.recipes[0].values["text"] = "Gekürzter Text" }
+        try store.save(restored)
+        XCTAssertEqual(try store.load().recipes.first?.render().text, "Fasse Gekürzter Text zusammen.")
+        XCTAssertEqual(try store.load().recipes.first?.render().isReady, true)
+    }
+
+    func testRepeatedRecipeFieldsStopExpansionBeforeCreatingOversizedPreview() {
+        let recipe = PromptRecipe(title: "Wiederholung", template: String(repeating: "{{text}} ", count: 100),
+                                  fields: [RecipeField(id: "text", label: "Text")],
+                                  values: ["text": String(repeating: "a", count: 2_000)])
+        let rendered = recipe.render()
+        XCTAssertFalse(rendered.isReady)
+        XCTAssertFalse(rendered.validationErrors.isEmpty)
+        XCTAssertLessThanOrEqual(rendered.text.utf16.count, 48_000)
+        XCTAssertEqual(recipe.values["text"]?.count, 2_000, "The user's stored answer must remain intact")
+    }
+
+    func testRecipePreviewAcceptsExactUTF16LimitAndRejectsOnlyLargerOutput() {
+        let value = String(repeating: "🧵", count: 12_000)
+        var recipe = PromptRecipe(title: "Grenze", template: "{{text}}{{text}}",
+                                  fields: [RecipeField(id: "text", label: "Text")], values: ["text": value])
+        XCTAssertTrue(recipe.render().isReady)
+        XCTAssertTrue(recipe.render().text == value + value)
+        recipe.template += "!"
+        XCTAssertFalse(recipe.render().isReady)
+        XCTAssertLessThanOrEqual(recipe.render().text.utf16.count, 48_000)
+    }
+
+    func testRecipeDraftStorageStillRejectsInvalidDefinitionsWithoutReplacingFile() throws {
+        let store = try LearningStore(accountID: "recipe-invalid", baseURL: temporaryDirectory())
+        let valid = LearningState(lessonDrafts: ["goal": "Behalten"])
+        try store.save(valid)
+        let before = try Data(contentsOf: store.fileURL)
+        for template in ["{{missing}}", "{{offen", String(repeating: "x", count: 48_001)] {
+            let invalid = PromptRecipe(title: "Fehler", template: template)
+            XCTAssertThrowsError(try store.save(LearningState(recipes: [invalid])))
+            XCTAssertEqual(try Data(contentsOf: store.fileURL), before)
+        }
+    }
+
     func testRecipeRejectsMalformedAndUndefinedPlaceholders() {
         var recipe = PromptRecipe(title: "Fehler", template: "{{nicht_definiert}}")
         XCTAssertFalse(recipe.render().isReady)
