@@ -62,6 +62,7 @@ public enum LessonCatalog {
         let uncertain = matches("\\b(keine ahnung|weiß (ich )?nicht|weiss (ich )?nicht|keine idee|weiß nicht wie)\\b")
         var matchesTask = false
         var detail = ""
+        var missingDetail: String?
         switch lesson.id {
         case "goal":
             matchesTask = matches("\\b(bitte|bitten|möchte|soll|um|lade|sage|absagen|einladen|informieren|frage)\\b") && matches("\\b(termin|terminvorschlag|absagen|absage|einladen|einladung|rückmeldung|bestätigung|antwort|informieren)\\b")
@@ -75,10 +76,10 @@ public enum LessonCatalog {
             matchesTask = audience && tone
             detail = "Du erwähnst eine Zielgruppe oder ihr Vorwissen und einen Ton. Prüfe, ob beides für diese Erklärung passt."
         case "format":
-            let format = matches("\\b(stichpunkte[nr]?|absätze[n]?|absatz|tabelle|liste|sätze[n]?|satz|zeilen?)\\b")
-            let length = matches("\\b([0-9]{1,3}|ein|eine|einen|zwei|drei|vier|fünf|sechs|zehn)\\b")
-            let excluded = matches("\\b(keine?|nicht|ohne)\\s+(?:[\\p{L}]+\\s+){0,2}(tabelle|liste|stichpunkte|absätze|sätze|zeilen)\\b")
-            matchesTask = format && length && !excluded
+            let evidence = formatEvidence(in: lower)
+            matchesTask = evidence.form && evidence.length
+            if !evidence.form { missingDetail = "Eine gewünschte Ausgabeform ist noch nicht eindeutig. Nenne zum Beispiel Absätze, Stichpunkte oder eine Tabelle; eine ausgeschlossene Form zählt nicht als Wunsch." }
+            else if !evidence.length { missingDetail = "Die Ausgabeform ist erkennbar. Ergänze noch die gewünschte Länge, etwa drei Stichpunkte oder eine Tabelle mit fünf Zeilen. Eine Zahl zum Inhalt legt die Ausgabelänge nicht fest." }
             detail = "Du nennst eine Ausgabeform und eine Anzahl. Prüfe, ob diese Länge zu dem Ausgangstext passt."
         case "followup":
             let request = matches("\\b(bitte|gib|zeige|nenn|nenne|mach|mache|beschreibe|erkläre|welche[rns]?|wie|kannst)\\b")
@@ -86,17 +87,25 @@ public enum LessonCatalog {
             detail = "Du fragst nach einem Beispiel oder einer konkreten Handlung. Prüfe, ob die Rückfrage genau die zu allgemeine Antwort weiterführt."
         case "check":
             let identifies = lower.contains("dienstag") && lower.contains("mittwoch")
-            let wrongDirection = matches("\\b(auf|zu|in)\\s+(den\\s+)?mittwoch\\b|\\bmittwoch\\s+statt\\s+dienstag\\b")
-            matchesTask = identifies && !wrongDirection && matches("\\b(korrigiere|korrigieren|berichtige|ändern|ändere|bitte)\\b")
+            let correction = "(?:korrigiere[n]?|berichtige[n]?|ändere|ändern)"
+            let wrongDirection = matches("\\b" + correction + "\\b[^.!?\\n]{0,100}\\b(?:auf|zu|in)\\s+(?:den\\s+)?mittwoch\\b|\\bdienstag\\s+(?:auf|zu|in)\\s+(?:den\\s+)?mittwoch\\b|\\bmittwoch\\s+statt\\s+dienstag\\b")
+                || matches("\\bmittwoch\\s+(?:ist|war)\\s+(?:der\\s+)?(?:richtig|korrekt)\\b|\\bdienstag\\s+(?:ist|war)\\s+(?:der\\s+)?(?:falsch|fehlerhaft)\\b")
+            let refusesCorrection = matches("\\b" + correction + "\\s+(?:bitte\\s+)?nicht\\s+(?:(?:den|das)\\s+)?(?:tag|wochentag|dienstag|mittwoch)\\b|\\bnicht\\s+" + correction + "\\b")
+            let changesTime = explicitTimes(in: lower).contains { $0.hour != 16 || $0.minute != 0 }
+            matchesTask = identifies && !wrongDirection && !refusesCorrection && !changesTime && matches("\\b(korrigiere|korrigieren|berichtige|ändern|ändere|bitte)\\b")
+            if wrongDirection { missingDetail = "Die Korrekturrichtung stimmt noch nicht: In der Anfrage steht Dienstag. Mittwoch ist die Abweichung in der Antwort." }
+            else if changesTime { missingDetail = "Die Uhrzeit ist bereits richtig: 16 Uhr. Korrigiere nur den abweichenden Tag, ohne eine neue Uhrzeit einzuführen." }
+            else if refusesCorrection { missingDetail = "Die Formulierung schließt die Korrektur des Tags aus. Bitte gezielt darum, Mittwoch durch Dienstag zu ersetzen." }
             detail = "Du benennst die Abweichung beim Tag und bittest um Korrektur. Die Uhrzeit 16 Uhr kann dabei unverändert bleiben."
         default:
             return LessonFeedback(observation: "Diese Übung wird von der lokalen Prüfung noch nicht unterstützt. Deine Eingabe bleibt erhalten.", independentApplication: false)
         }
         matchesTask = matchesTask && !uncertain && normalize(text) != normalize(lesson.baseline)
+        if uncertain { missingDetail = nil }
         let copied = normalize(text) == normalize(lesson.solution)
         let independent = matchesTask && !usedHint && !revealedSolution && !copied
         let excerpt = String(text.prefix(220)) + (text.count > 220 ? "…" : "")
-        let next = matchesTask ? detail : "Die lokale Prüfung findet die gesuchte Ergänzung noch nicht eindeutig. \(lesson.action) Du kannst deinen Versuch überarbeiten oder einen Hinweis ansehen."
+        let next = matchesTask ? detail : (missingDetail ?? "Die lokale Prüfung findet die gesuchte Ergänzung noch nicht eindeutig. \(lesson.action)") + " Du kannst deinen Versuch überarbeiten oder einen Hinweis ansehen."
         let support: String
         if copied { support = "Dein Text entspricht der Beispiel-Lösung. Das wird als Übernahme gespeichert, nicht als selbstständige Anwendung." }
         else if usedHint || revealedSolution { support = "Der Versuch wird mit der verwendeten Hilfe gespeichert." }
@@ -115,5 +124,34 @@ public enum LessonCatalog {
 
     private static func normalize(_ text: String) -> String {
         text.lowercased().split(whereSeparator: \.isWhitespace).joined(separator: " ").trimmingCharacters(in: .punctuationCharacters)
+    }
+
+    private static func formatEvidence(in text: String) -> (form: Bool, length: Bool) {
+        let form = "(?:stichpunkte[nr]?|punkte[n]?|absätze[n]?|absatz|tabelle|liste|sätze[n]?|satz|zeilen?)"
+        let unit = "(?:stichpunkte[nr]?|punkte[n]?|absätze[n]?|absatz|sätze[n]?|satz|zeilen?|wörter[n]?|worte[n]?|zeichen|seiten?)"
+        let count = "(?:[1-9][0-9]{0,2}|ein(?:e[nmrs]?)?|zwei|drei|vier|fünf|sechs|sieben|acht|neun|zehn)"
+        let alternative = "\\b(?:statt|anstatt)\\s+(?:(?:einer?|einem|einen|der)\\s+)?" + form + "\\s+(?:bitte\\s+)?"
+        let separated = text.replacingOccurrences(of: alternative, with: "\n", options: .regularExpression)
+            .replacingOccurrences(of: "\\b(?:sondern|stattdessen|aber)\\b|[.;!?\\n]", with: "\n", options: .regularExpression)
+        var hasForm = false, hasLength = false
+        for raw in separated.components(separatedBy: "\n") {
+            let clause = raw.replacingOccurrences(of: "\\bnicht (?:mehr|länger) als\\b", with: "höchstens", options: .regularExpression)
+            let excluded = "\\b(?:kein(?:e[nmrs]?)?|nicht|ohne)\\s+(?:[\\p{L}0-9]+\\s+){0,4}" + form + "\\b|\\b" + form + "\\s+(?:bitte\\s+)?nicht\\b"
+            guard clause.range(of: excluded, options: .regularExpression) == nil,
+                  clause.range(of: "\\b(?:ausgangstext|quelltext|text)\\s+(?:hat|enthält|umfasst)\\b", options: .regularExpression) == nil else { continue }
+            hasForm = hasForm || clause.range(of: "\\b" + form + "\\b", options: .regularExpression) != nil
+            hasLength = hasLength || clause.range(of: "\\b" + count + "\\s+(?:(?:kurz|knapp|prägnant)[\\p{L}]*\\s+)?" + unit + "\\b", options: .regularExpression) != nil
+        }
+        return (hasForm, hasLength)
+    }
+
+    private static func explicitTimes(in text: String) -> [(hour: Int, minute: Int)] {
+        let expression = try! NSRegularExpression(pattern: "\\b([0-9]{1,2})(?::([0-9]{2}))?\\s*uhr\\b")
+        let source = text as NSString
+        return expression.matches(in: text, range: NSRange(location: 0, length: source.length)).compactMap { match in
+            guard let hour = Int(source.substring(with: match.range(at: 1))) else { return nil }
+            let minutes = match.range(at: 2)
+            return (hour, minutes.location == NSNotFound ? 0 : Int(source.substring(with: minutes)) ?? 0)
+        }
     }
 }

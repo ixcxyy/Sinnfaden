@@ -56,7 +56,7 @@ public final class ConnectionManager: ObservableObject {
             var params = ["client_id": savedClientID ?? "dynamic_agent_client", "ext_agent_host_id": registration.hostID, "response_type": "code", "redirect_uri": server.redirectURI, "scope": "openid profile email offline_access resource.invoke chatgpt.tokens.use.direct", "resource": "https://api.openai.com/v1", "state": state, "nonce": nonce, "code_challenge_method": "S256", "code_challenge": OAuthProof.challenge(verifier: verifier)]
             if savedClientID == nil { params["agent_name_hint"] = "Sinnfaden" }
             if consent { params["prompt"] = "consent" }
-            if let selected, let token = try secure.load(OAuthTokens.self, account: selected.id)?.idToken { params["id_token_hint"] = token }
+            if let selected, let token = try await secure.load(OAuthTokens.self, account: selected.id)?.idToken { params["id_token_hint"] = token }
             components.queryItems = params.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
             guard revision == attempt, let url = components.url, NSWorkspace.shared.open(url) else { throw ProviderFailure(.authentication, "Der Systembrowser konnte nicht geöffnet werden.") }
             let returned = try await server.result()
@@ -114,18 +114,23 @@ public final class ConnectionManager: ObservableObject {
     public func selectAccount(_ id: String) async {
         await signOutTask?.value
         guard let account = savedAccounts.first(where: { $0.id == id }) else { return }
-        revision = UUID(); callback?.cancel()
+        let attempt = UUID(); revision = attempt; callback?.cancel()
         accountID = id; providerKind = account.provider; models = []; modelNames = [:]; selectedModel = ""
+        status = .connecting; statusMessage = "Gespeicherte Anmeldung wird im macOS-Schlüsselbund geprüft …"
         do {
             registrations?.selectedID = id; try registrations?.save()
             if account.provider == .apiKey {
-                guard try secure.load(String.self, account: id) != nil else { status = .disconnected; statusMessage = "API-Schlüssel erneut eingeben"; return }
+                let key = try await secure.load(String.self, account: id)
+                guard revision == attempt else { return }
+                guard key != nil else { status = .disconnected; statusMessage = "API-Schlüssel erneut eingeben"; return }
             } else {
-                guard let tokens = try secure.load(OAuthTokens.self, account: id) else { status = .disconnected; statusMessage = "Bitte erneut mit ChatGPT anmelden"; return }
+                let loaded = try await secure.load(OAuthTokens.self, account: id)
+                guard revision == attempt else { return }
+                guard let tokens = loaded else { status = .disconnected; statusMessage = "Bitte erneut mit ChatGPT anmelden"; return }
                 guard tokens.canUsePlan, tokens.accessToken != nil else { status = .identityOnly; statusMessage = "Angemeldet · Nutzung noch nicht freigegeben"; return }
             }
             status = .connected; statusMessage = "Verbindung wird geprüft …"; await refreshModels()
-        } catch { setFailure(error) }
+        } catch { if revision == attempt { setFailure(error) } }
     }
 
     public func connectAPIKey(_ key: String) async {
@@ -224,13 +229,13 @@ public final class ConnectionManager: ObservableObject {
     private func bearer() async throws -> String {
         guard let id = accountID, let account = savedAccounts.first(where: { $0.id == id }) else { throw ProviderFailure(.authentication, "Bitte melde dich zuerst an.") }
         if account.provider == .apiKey {
-            guard let key = try secure.load(String.self, account: id) else { throw ProviderFailure(.authentication, "Der API-Schlüssel fehlt.") }; return key
+            guard let key = try await secure.load(String.self, account: id) else { throw ProviderFailure(.authentication, "Der API-Schlüssel fehlt.") }; return key
         }
         if let refreshTask = refreshTasks[id] { return try await refreshTask.value }
         let transport = self.transport, secure = self.secure
         let task = Task<String, Error> {
             let lock = SessionFileLock(); try await lock.acquire(); defer { lock.release() }
-            guard var tokens = try secure.load(OAuthTokens.self, account: id), tokens.canUsePlan, let current = tokens.accessToken else { throw ProviderFailure(.permission, "Die Nutzung deines ChatGPT-Plans ist noch nicht freigegeben.", code: "missing_plan_scope") }
+            guard var tokens = try await secure.load(OAuthTokens.self, account: id), tokens.canUsePlan, let current = tokens.accessToken else { throw ProviderFailure(.permission, "Die Nutzung deines ChatGPT-Plans ist noch nicht freigegeben.", code: "missing_plan_scope") }
             if tokens.expiresAt > Date().addingTimeInterval(90) { return current }
             guard let refresh = tokens.refreshToken else { throw ProviderFailure(.authentication, "Bitte melde dich erneut an, um die Verbindung zu erneuern.") }
             do {
@@ -288,7 +293,7 @@ public final class ConnectionManager: ObservableObject {
             var refresh: String?
             do {
                 let lock = SessionFileLock(); try await lock.acquire(); defer { lock.release() }
-                if account.provider == .chatGPT { refresh = try secure.load(OAuthTokens.self, account: id)?.refreshToken }
+                if account.provider == .chatGPT { refresh = try await secure.load(OAuthTokens.self, account: id)?.refreshToken }
                 // Keep the revocation token only in memory. Local logout remains effective
                 // even if the process quits while the remote revocation is pending.
                 try secure.delete(account: id)

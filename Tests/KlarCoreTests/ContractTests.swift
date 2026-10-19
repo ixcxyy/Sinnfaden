@@ -20,6 +20,41 @@ final class ContractTests: XCTestCase {
         XCTAssertEqual(filled.changes, DemoContent.response.changes)
     }
 
+    func testFillingFieldsNeverReinterpretsTheUsersTextAsAnotherPlaceholder() {
+        let response = CoachResponse(status: .improved, coachMessage: "Ergänze die Angaben.",
+            segments: [PromptSegment(id: "s1", text: "[Name]: [Text]. Noch einmal: [Name]")], inputs: [
+                PromptInput(id: "name", label: "Name", kind: .text, placeholder: "[Name]", why: "Wer ist gemeint?"),
+                PromptInput(id: "text", label: "Text", kind: .long_text, placeholder: "[Text]", why: "Was ist wichtig?")
+            ])
+        let filled = response.filled(with: ["name": "[Text]", "text": "  Grüße 👩🏽‍💻\n[Name]  "])
+        XCTAssertEqual(filled.prompt, "[Text]:   Grüße 👩🏽‍💻\n[Name]  . Noch einmal: [Text]")
+        XCTAssertEqual(response.prompt, "[Name]: [Text]. Noch einmal: [Name]")
+        var reversed = response
+        reversed.inputs.reverse()
+        XCTAssertEqual(reversed.filled(with: ["name": "[Text]", "text": "  Grüße 👩🏽‍💻\n[Name]  "]).prompt, filled.prompt)
+    }
+
+    func testFieldSplitAcrossSegmentsStillFillsAndPreservesSegmentIdentities() {
+        let response = CoachResponse(status: .improved, coachMessage: "Ergänze den Namen.", segments: [
+            PromptSegment(id: "before", text: "Grüße 👩🏽‍💻 [Na"),
+            PromptSegment(id: "middle", text: "me"),
+            PromptSegment(id: "after", text: "]! Und [Name].")
+        ], inputs: [PromptInput(id: "name", label: "Name", kind: .text, placeholder: "[Name]", why: "Wer ist gemeint?")])
+        let filled = response.filled(with: ["name": "Özdemir"])
+        XCTAssertEqual(filled.prompt, "Grüße 👩🏽‍💻 Özdemir! Und Özdemir.")
+        XCTAssertEqual(filled.segments.map(\.id), response.segments.map(\.id))
+        XCTAssertEqual(response.filled(with: ["name": " \n "]).prompt, response.prompt)
+    }
+
+    func testInputCannotReplaceAnOrdinaryWordOrAnInvalidBracketToken() {
+        for placeholder in ["Berger", "[]", "[ ]", "[[Name]]", "[Name\rZusatz]"] {
+            let response = CoachResponse(status: .improved, coachMessage: "Ergänze den Namen.",
+                segments: [PromptSegment(id: "s1", text: "Schreibe an \(placeholder).")],
+                inputs: [PromptInput(id: "name", label: "Name", kind: .text, placeholder: placeholder, why: "Wer ist gemeint?")])
+            XCTAssertThrowsError(try CoachValidator.validate(response, original: "Schreibe eine Mail."), placeholder)
+        }
+    }
+
     func testInputsMustMatchPlaceholdersAndOptions() throws {
         var response = DemoContent.response
         response.inputs[0].placeholder = "[Gibt es nicht]"

@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 
 public struct ResponsesStreamParser {
     public private(set) var text = ""
@@ -6,6 +7,10 @@ public struct ResponsesStreamParser {
     private var dataLines = [String]()
     private var eventSize = 0
     private var totalSize = 0
+    private var finalizedItems: [Int: [String: Any]] = [:]
+    private var deltaBytes = 0
+    private var terminalItemCount = -1
+    private static let log = Logger(subsystem: "at.klar.promptcoach", category: "response-transport")
     public init() {}
     public mutating func consume(line: String) throws {
         totalSize += line.utf8.count
@@ -23,7 +28,12 @@ public struct ResponsesStreamParser {
     public mutating func finish() throws -> String {
         try flush()
         guard completed else { throw ProviderFailure(.interrupted, "Die Antwort wurde unterbrochen. Dein Entwurf bleibt erhalten; du kannst es erneut versuchen.") }
-        guard !text.isEmpty else { throw ProviderFailure(.invalidResponse, "OpenAI hat keine Textantwort geliefert.") }
+        guard !text.isEmpty else {
+            // Counts only: never record message contents, credentials, IDs, or server-supplied strings.
+            let counts = (deltaBytes, finalizedItems.count, terminalItemCount)
+            Self.log.error("no_text_response delta_bytes=\(counts.0) finalized_items=\(counts.1) terminal_items=\(counts.2)")
+            throw ProviderFailure(.invalidResponse, "OpenAI hat keine Textantwort geliefert.", code: "empty_text_response")
+        }
         return text
     }
     private mutating func flush() throws {
@@ -38,16 +48,26 @@ public struct ResponsesStreamParser {
         case "response.output_text.delta":
             guard let delta = event["delta"] as? String else { throw ProviderFailure(.invalidResponse, "Ein Textteil der Antwort ist ungültig.") }
             text += delta
+            deltaBytes += delta.utf8.count
             guard text.utf8.count <= 256_000 else { throw ProviderFailure(.invalidResponse, "Die Antwort ist zu lang. Bitte grenze deine Anfrage ein.") }
+        case "response.output_item.done":
+            guard let index = event["output_index"] as? Int, (0..<1_024).contains(index),
+                  let item = event["item"] as? [String: Any] else {
+                throw ProviderFailure(.invalidResponse, "Ein abgeschlossener Antwortteil ist ungültig.")
+            }
+            // Keep finalized items, rather than assuming the completion envelope repeats their text.
+            _ = try Self.finalText(from: [item])
+            finalizedItems[index] = item
         case "response.completed":
             guard let response = event["response"] as? [String: Any], response["status"] as? String == "completed" else { throw ProviderFailure(.invalidResponse, "Die Antwort wurde nicht eindeutig abgeschlossen.") }
             if let output = response["output"] as? [[String: Any]] {
-                let content = output.flatMap { $0["content"] as? [[String: Any]] ?? [] }
-                guard !content.contains(where: { $0["type"] as? String == "refusal" }) else {
-                    throw ProviderFailure(.permission, "OpenAI konnte zu dieser Anfrage keinen Vorschlag liefern.")
-                }
-                // The terminal response is authoritative, even if a delta was missing.
-                text = content.filter { $0["type"] as? String == "output_text" }.compactMap { $0["text"] as? String }.joined()
+                // An explicitly supplied array is authoritative, including an empty one.
+                terminalItemCount = output.count
+                text = try Self.finalText(from: output)
+            } else if let output = response["output"], !(output is NSNull) {
+                throw ProviderFailure(.invalidResponse, "Die abgeschlossene Antwort enthält ein ungültiges Ausgabeformat.")
+            } else if !finalizedItems.isEmpty {
+                text = try Self.finalText(from: finalizedItems.keys.sorted().compactMap { finalizedItems[$0] })
             }
             guard text.utf8.count <= 256_000 else { throw ProviderFailure(.invalidResponse, "Die Antwort ist zu lang.") }
             completed = true
@@ -64,6 +84,29 @@ public struct ResponsesStreamParser {
             throw ProviderFailure(.permission, "OpenAI konnte zu dieser Anfrage keinen Vorschlag liefern. Du kannst sie bearbeiten und erneut versuchen.")
         default: break
         }
+    }
+
+    private static func finalText(from items: [[String: Any]]) throws -> String {
+        var result = ""
+        for item in items {
+            let content = item["content"] as? [[String: Any]] ?? []
+            guard !content.contains(where: { $0["type"] as? String == "refusal" }) else {
+                throw ProviderFailure(.permission, "OpenAI konnte zu dieser Anfrage keinen Vorschlag liefern.")
+            }
+            guard item["type"] == nil || item["type"] as? String == "message" else { continue }
+            if let status = item["status"] as? String, status != "completed" {
+                throw ProviderFailure(.incomplete, "Ein Antwortteil wurde nicht vollständig abgeschlossen.")
+            }
+            // Progress commentary is not the requested answer and must not contaminate tutor JSON.
+            if let phase = item["phase"] as? String, phase != "final_answer" { continue }
+            for part in content where part["type"] as? String == "output_text" {
+                guard let value = part["text"] as? String else {
+                    throw ProviderFailure(.invalidResponse, "Ein abgeschlossener Textteil ist ungültig.")
+                }
+                result += value
+            }
+        }
+        return result
     }
 }
 

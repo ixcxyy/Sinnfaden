@@ -47,7 +47,7 @@ public enum CoachSanitizer {
             change = change.filter { changeKeys.contains($0.key) }
             if !(change["target_segment_ids"] is [String]) { change["target_segment_ids"] = [] }
             for key in ["original_text", "rule_id"] where change[key] is NSNull { change.removeValue(forKey: key) }
-            return change
+            return decodes(change, as: PromptChange.self) ? change : nil
         }
         result["inputs"] = (result["inputs"] as? [Any] ?? []).compactMap { item -> [String: Any]? in
             guard var input = item as? [String: Any] else { return nil }
@@ -56,7 +56,7 @@ public enum CoachSanitizer {
             if !(input["required"] is Bool) { input["required"] = false }
             if !(input["why"] is String) { input["why"] = "" }
             if input["suggestion"] is NSNull { input.removeValue(forKey: "suggestion") }
-            return input
+            return decodes(input, as: PromptInput.self) ? input : nil
         }
         for key in ["unknowns", "suggestions"] {
             result[key] = (result[key] as? [Any] ?? []).compactMap { $0 as? String }
@@ -67,9 +67,16 @@ public enum CoachSanitizer {
             result["clarification"] = clarification
         }
         if let exercise = result["exercise"] as? [String: Any] {
-            result["exercise"] = exercise.filter { ["id", "question", "category"].contains($0.key) }
-        }
+            let filtered = exercise.filter { ["id", "question", "category"].contains($0.key) }
+            result["exercise"] = decodes(filtered, as: CoachExercise.self) ? filtered : nil
+        } else { result.removeValue(forKey: "exercise") }
         return result
+    }
+
+    /// A malformed optional item must not prevent independently valid siblings from being checked.
+    private static func decodes<T: Decodable>(_ object: [String: Any], as type: T.Type) -> Bool {
+        guard let data = try? JSONSerialization.data(withJSONObject: object) else { return false }
+        return (try? JSONDecoder().decode(type, from: data)) != nil
     }
 
     private static let topLevelKeys: Set<String> = ["schema_version", "status", "coach_message", "segments", "changes", "unknowns", "suggestions", "clarification", "exercise", "inputs"]

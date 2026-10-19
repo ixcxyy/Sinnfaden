@@ -93,18 +93,38 @@ public struct CoachResponse: Codable, Equatable, Sendable {
         inputs = try container.decodeIfPresent([PromptInput].self, forKey: .inputs) ?? []
     }
 
-    /// Replaces each answered placeholder inside its segment; unanswered placeholders stay
-    /// visible. Segment IDs and annotations keep pointing at the same passages.
+    /// Matches placeholders only in the original prompt, never in inserted user text.
+    /// Unanswered fields stay visible, and segment IDs survive even when a token spans segments.
     public func filled(with values: [String: String]) -> CoachResponse {
         var copy = self
+        var replacements: [String: String] = [:]
         for input in inputs {
-            guard let value = values[input.id]?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { continue }
-            for index in copy.segments.indices {
-                copy.segments[index].text = copy.segments[index].text.replacingOccurrences(of: input.placeholder, with: value)
+            guard CoachValidator.validPlaceholder(input.placeholder),
+                  let value = values[input.id], !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+            replacements[input.placeholder] = value
+        }
+        guard !replacements.isEmpty else { return copy }
+        let source = prompt as NSString
+        var offset = 0
+        let ranges = segments.map { segment -> NSRange in
+            let length = (segment.text as NSString).length
+            defer { offset += length }
+            return NSRange(location: offset, length: length)
+        }
+        // Work backwards so replacements do not invalidate earlier offsets in the same segment.
+        for match in Self.placeholderPattern.matches(in: prompt, range: NSRange(location: 0, length: source.length)).reversed() {
+            guard let value = replacements[source.substring(with: match.range)] else { continue }
+            for (index, range) in ranges.enumerated() {
+                let overlap = NSIntersectionRange(range, match.range)
+                guard overlap.length > 0 else { continue }
+                let replacement = overlap.location == match.range.location ? value : ""
+                let local = NSRange(location: overlap.location - range.location, length: overlap.length)
+                copy.segments[index].text = (copy.segments[index].text as NSString).replacingCharacters(in: local, with: replacement)
             }
         }
         return copy
     }
+    private static let placeholderPattern = try! NSRegularExpression(pattern: "\\[[^\\[\\]\\r\\n]+\\]")
     public var prompt: String { segments.map(\.text).joined() }
     /// Native text layout and copying share this exact, ordered string. Never search by quote to locate an annotation.
     public var segmentRanges: [String: NSRange] {
@@ -196,6 +216,11 @@ public enum CoachValidator {
         text.utf16.count <= limit && !text.unicodeScalars.contains { $0.value < 32 && $0 != "\n" && $0 != "\t" && $0 != "\r" }
     }
     static func validID(_ id: String) -> Bool { id.range(of: "^[A-Za-z][A-Za-z0-9_-]{0,63}$", options: .regularExpression) != nil }
+    static func validPlaceholder(_ text: String) -> Bool {
+        guard text.first == "[", text.last == "]", text.count >= 3 else { return false }
+        let label = String(text.dropFirst().dropLast())
+        return nonempty(label) && label.rangeOfCharacter(from: CharacterSet(charactersIn: "[]\r\n")) == nil
+    }
     static func occurrences(_ needle: String, in haystack: String) -> Int {
         guard !needle.isEmpty else { return 0 }
         return haystack.components(separatedBy: needle).count - 1
@@ -250,7 +275,7 @@ public enum CoachValidator {
         try require(validID(input.id), "Eine Feldkennung ist ungültig.")
         try require(nonempty(input.label) && safeText(input.label, limit: 80), "Ein Feldname fehlt oder ist zu lang.")
         try require(nonempty(input.why) && safeText(input.why, limit: 240), "Ein Feld braucht eine kurze Begründung.")
-        try require(nonempty(input.placeholder) && safeText(input.placeholder, limit: 80) && !input.placeholder.contains("\n"), "Ein Platzhalter ist ungültig.")
+        try require(validPlaceholder(input.placeholder) && safeText(input.placeholder, limit: 80), "Ein Platzhalter muss eine benannte Angabe in eckigen Klammern sein.")
         try require(prompt.contains(input.placeholder), "Ein Eingabefeld verweist auf einen Platzhalter, der im Vorschlag fehlt.")
         try require(input.options.count <= 8 && input.options.allSatisfy { nonempty($0) && safeText($0, limit: 60) }, "Die Auswahl eines Feldes ist ungültig.")
         switch input.kind {

@@ -123,6 +123,29 @@ final class LearningFeaturesTests: XCTestCase {
         XCTAssertTrue(LessonCatalog.evaluate(answer: "Bitte Dienstag statt Mittwoch schreiben und die Uhrzeit behalten.", lesson: checking).meetsExercise)
     }
 
+    func testFormatLessonConnectsLengthToOutputAndAllowsAnExplicitAlternative() throws {
+        let lesson = try XCTUnwrap(LessonCatalog.lookup("format"))
+        for answer in ["Bitte als Tabelle. Der Text handelt von drei Personen.", "Drei Tage später möchte ich eine Liste.", "Bitte keine Tabelle mit fünf Zeilen.", "Drei Stichpunkte bitte nicht."] {
+            XCTAssertFalse(LessonCatalog.evaluate(answer: answer, lesson: lesson).meetsExercise, answer)
+        }
+        for answer in ["Bitte keine Tabelle, sondern drei kurze Stichpunkte.", "Statt einer Liste bitte zwei Absätze.", "Bitte als Tabelle mit maximal vier Zeilen.", "In einem kurzen Satz."] {
+            XCTAssertTrue(LessonCatalog.evaluate(answer: answer, lesson: lesson).meetsExercise, answer)
+        }
+        let missingLength = LessonCatalog.evaluate(answer: "Bitte als Tabelle.", lesson: lesson)
+        XCTAssertTrue(missingLength.observation.contains("Länge"))
+        XCTAssertFalse(missingLength.independentApplication)
+    }
+
+    func testCheckingLessonDoesNotRewardWrongDayOrChangedTime() throws {
+        let lesson = try XCTUnwrap(LessonCatalog.lookup("check"))
+        for answer in ["Mittwoch ist richtig, Dienstag ist falsch. Bitte korrigiere.", "Bitte korrigiere Mittwoch auf Dienstag um 17 Uhr.", "Bitte korrigiere nicht den Tag von Mittwoch auf Dienstag."] {
+            XCTAssertFalse(LessonCatalog.evaluate(answer: answer, lesson: lesson).meetsExercise, answer)
+        }
+        for answer in ["In meiner Anfrage steht Dienstag, in der Antwort Mittwoch. Bitte korrigiere den Tag.", "Dienstag in meiner Anfrage wurde zu Mittwoch. Bitte korrigiere das."] {
+            XCTAssertTrue(LessonCatalog.evaluate(answer: answer, lesson: lesson).meetsExercise, answer)
+        }
+    }
+
     func testScaffoldRequiresDistinctIndependentApplicationsForSamePrinciple() throws {
         let lesson = try XCTUnwrap(LessonCatalog.lookup("format"))
         func attempt(_ answer: String, hint: Bool = false) -> LessonAttempt {

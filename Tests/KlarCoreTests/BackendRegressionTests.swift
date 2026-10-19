@@ -31,4 +31,50 @@ final class BackendRegressionTests: XCTestCase {
         try parser.consume(line: #"data: {"type":"response.completed","response":{"status":"completed","output":[{"content":[{"type":"refusal","refusal":"no"}]}]}}"#)
         XCTAssertThrowsError(try parser.consume(line: ""))
     }
+
+    func testFinalizedMessageSurvivesAnOmittedOrNullTerminalOutput() throws {
+        for output in ["", ",\"output\":null"] {
+            var parser = ResponsesStreamParser()
+            try event(#"{"type":"response.output_text.delta","delta":"partial"}"#, into: &parser)
+            try event(#"{"type":"response.output_item.done","output_index":0,"item":{"id":"msg_final","type":"message","status":"completed","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"complete final answer"}]}}"#, into: &parser)
+            try event("{\"type\":\"response.completed\",\"response\":{\"status\":\"completed\"\(output)}}", into: &parser)
+            XCTAssertEqual(try parser.finish(), "complete final answer")
+        }
+    }
+
+    func testCommentaryIsNotPartOfTheFinalTutorJSON() throws {
+        var parser = ResponsesStreamParser()
+        try event(#"{"type":"response.completed","response":{"status":"completed","output":[{"type":"message","phase":"commentary","content":[{"type":"output_text","text":"I am preparing a response."}]},{"type":"message","phase":"final_answer","content":[{"type":"output_text","text":"{\"answer\":\"final\"}"}]}]}}"#, into: &parser)
+        XCTAssertEqual(try parser.finish(), #"{"answer":"final"}"#)
+    }
+
+    func testFinalizedRefusalIsNotLostWhenTerminalOutputIsNull() throws {
+        var parser = ResponsesStreamParser()
+        try event(#"{"type":"response.output_text.delta","delta":"partial"}"#, into: &parser)
+        XCTAssertThrowsError(try {
+            try event(#"{"type":"response.output_item.done","output_index":0,"item":{"type":"message","status":"completed","content":[{"type":"refusal","refusal":"Cannot comply"}]}}"#, into: &parser)
+            try event(#"{"type":"response.completed","response":{"status":"completed","output":null}}"#, into: &parser)
+            _ = try parser.finish()
+        }())
+    }
+
+    func testExplicitEmptyTerminalOutputDoesNotResurrectPartialText() throws {
+        var parser = ResponsesStreamParser()
+        try event(#"{"type":"response.output_text.delta","delta":"partial"}"#, into: &parser)
+        try event(#"{"type":"response.completed","response":{"status":"completed","output":[]}}"#, into: &parser)
+        XCTAssertThrowsError(try parser.finish())
+    }
+
+    func testMalformedTerminalOutputDoesNotFallBackToPartialText() throws {
+        for output in ["false", "{}", "[42]"] {
+            var parser = ResponsesStreamParser()
+            try event(#"{"type":"response.output_text.delta","delta":"partial"}"#, into: &parser)
+            XCTAssertThrowsError(try event("{\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":\(output)}}", into: &parser))
+        }
+    }
+
+    private func event(_ json: String, into parser: inout ResponsesStreamParser) throws {
+        try parser.consume(line: "data: " + json)
+        try parser.consume(line: "")
+    }
 }

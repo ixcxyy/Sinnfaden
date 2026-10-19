@@ -2,8 +2,10 @@ import Foundation
 import Security
 import Darwin
 
-struct SecureStorage {
+struct SecureStorage: Sendable {
     private let service = "de.klar.promptcoach.credentials.v1"
+    private let readData: (@Sendable (String) throws -> Data?)?
+    init(readData: (@Sendable (String) throws -> Data?)? = nil) { self.readData = readData }
     func save<T: Encodable>(_ value: T, account: String) throws {
         let data = try JSONEncoder().encode(value)
         let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account]
@@ -14,13 +16,26 @@ struct SecureStorage {
             guard SecItemAdd(item as CFDictionary, nil) == errSecSuccess else { throw failure }
         } else if result != errSecSuccess { throw failure }
     }
-    func load<T: Decodable>(_ type: T.Type, account: String) throws -> T? {
+    func load<T: Decodable & Sendable>(_ type: T.Type, account: String) async throws -> T? {
+        try Task.checkCancellation()
+        // Security may wait for a permission dialog. Do not block MainActor or Swift's cooperative pool.
+        let data: Data? = try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                continuation.resume(with: Result { try read(account: account) })
+            }
+        }
+        try Task.checkCancellation()
+        guard let data else { return nil }
+        return try JSONDecoder().decode(type, from: data)
+    }
+    private func read(account: String) throws -> Data? {
+        if let readData { return try readData(account) }
         let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account, kSecReturnData as String: true, kSecMatchLimit as String: kSecMatchLimitOne]
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         if status == errSecItemNotFound { return nil }
         guard status == errSecSuccess, let data = result as? Data else { throw failure }
-        return try JSONDecoder().decode(type, from: data)
+        return data
     }
     func delete(account: String) throws {
         let result = SecItemDelete([kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account] as CFDictionary)

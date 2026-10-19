@@ -8,7 +8,7 @@ Die gebaute App liegt unter `Artifacts/Sinnfaden.app`, das Installationsabbild u
 
 ## Enthalten
 
-- **Updates & Fehler:** lokale, inhaltsarme Fehlerberichte mit Export, optionaler Übermittlung an private GitHub-Issues und signierte App-Updates über Sparkle. Der Meldekanal und Release-Feed sind im Entwicklungsbuild noch nicht aktiviert. [Einrichtung und Grenzen](docs/MAINTENANCE.md) · [Backend-Prüfung](docs/BACKEND-AUDIT.md).
+- **Updates & Fehler:** lokale, inhaltsarme Fehlerberichte mit Export, optionaler Übermittlung an private GitHub-Issues und signierte App-Updates über Sparkle. Meldekanal und Release-Feed sind auf Cloudflare Free aktiv; die automatische Übermittlung bleibt eine Einstellung der App. [Kostenloser Betrieb](docs/FREE-HOSTING.md) · [Einrichtung und Grenzen](docs/MAINTENANCE.md) · [Backend-Prüfung](docs/BACKEND-AUDIT.md).
 
 - Eigene ChatGPT-Anmeldung mit getrennter Freigabe zur Plan-Nutzung. Kein automatischer Wechsel zur separat berechneten API.
 - Strukturierte, streng geprüfte Prompt-Vorschläge; echte Änderungen mit Erklärungen, manuell editierbar.
