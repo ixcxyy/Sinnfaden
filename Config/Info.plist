@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleName</key><string>Sinnfaden</string>
+<key>CFBundleDisplayName</key><string>Sinnfaden</string>
+<key>CFBundleExecutable</key><string>KLAR</string>
+<key>CFBundleIdentifier</key><string>at.klar.promptcoach</string>
+<key>CFBundleVersion</key><string>5</string>
+<key>CFBundleShortVersionString</key><string>0.4.1</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleIconFile</key><string>SinnfadenIcon</string>
+<key>LSMinimumSystemVersion</key><string>14.0</string>
+<key>NSHighResolutionCapable</key><true/>
+<key>NSPrincipalClass</key><string>NSApplication</string>
+<key>NSHumanReadableCopyright</key><string>Sinnfaden</string>
+<key>SUEnableAutomaticChecks</key><true/>
+<key>SUAllowsAutomaticUpdates</key><false/>
+<key>SUAutomaticallyUpdate</key><false/>
+<key>SUSendProfileInfo</key><false/>
+<key>SUVerifyUpdateBeforeExtraction</key><true/>
+<key>SURequireSignedFeed</key><true/>
+</dict></plist>

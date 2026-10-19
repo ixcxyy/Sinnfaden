@@ -1,0 +1,119 @@
+import Foundation
+
+public struct PromptLesson: Codable, Identifiable, Equatable, Sendable {
+    public let id: String
+    public let title: String
+    public let principle: String
+    public let baseline: String
+    public let solution: String
+    public let hint: String
+    public let action: String
+    public let version: Int
+    public init(id: String, title: String, principle: String, baseline: String, solution: String, hint: String, action: String, version: Int = 1) {
+        self.id = id; self.title = title; self.principle = principle; self.baseline = baseline; self.solution = solution
+        self.hint = hint; self.action = action; self.version = version
+    }
+}
+
+public struct LessonFeedback: Codable, Equatable, Sendable {
+    public let observation: String
+    public let independentApplication: Bool
+    public let meetsExercise: Bool
+    public init(observation: String, independentApplication: Bool, meetsExercise: Bool = false) {
+        self.observation = observation; self.independentApplication = independentApplication; self.meetsExercise = meetsExercise
+    }
+}
+
+public struct LessonAttempt: Codable, Identifiable, Equatable, Sendable {
+    public let id: UUID
+    public let createdAt: Date
+    public let lessonID: String
+    public let answer: String
+    public let feedback: LessonFeedback
+    public let usedHint: Bool
+    public let revealedSolution: Bool
+    public init(id: UUID = UUID(), createdAt: Date = Date(), lessonID: String, answer: String, feedback: LessonFeedback, usedHint: Bool = false, revealedSolution: Bool = false) {
+        self.id = id; self.createdAt = createdAt; self.lessonID = lessonID; self.answer = answer; self.feedback = feedback
+        self.usedHint = usedHint; self.revealedSolution = revealedSolution
+    }
+}
+
+public enum LessonPracticeStage: String, Codable, Sendable { case guided, independent, transfer }
+
+public enum LessonCatalog {
+    public static let lessons: [PromptLesson] = [
+        PromptLesson(id: "goal", title: "Das Ziel ausdrücken", principle: "Schreib, was das Ergebnis ermöglichen soll.", baseline: "Hilf mir mit einer E-Mail.", solution: "Schreibe eine E-Mail, in der ich um einen neuen Terminvorschlag bitte.", hint: "Soll die E-Mail zum Beispiel absagen, einladen oder um eine Rückmeldung bitten? Wähle selbst ein Ziel.", action: "Ergänze selbst, was diese E-Mail erreichen soll."),
+        PromptLesson(id: "context", title: "Hilfreichen Kontext geben", principle: "Ergänze Umstände, die den Vorschlag tatsächlich verändern.", baseline: "Plane einen Spaziergang.", solution: "Plane einen Spaziergang von höchstens 30 Minuten. Start und Ende sind [Ort].", hint: "Zeit, Startort oder eine Grenze können wichtig sein. Gib nur an, was du wirklich weißt.", action: "Ergänze eine konkrete Dauer oder einen Startort für den Spaziergang."),
+        PromptLesson(id: "audience", title: "Person und Ton beschreiben", principle: "Für wen eine Antwort gedacht ist, beeinflusst Sprache und Vorwissen.", baseline: "Erkläre, wie ein Passwortmanager funktioniert.", solution: "Erkläre, wie ein Passwortmanager funktioniert, für eine Person ohne Vorkenntnisse. Schreibe sachlich und verständlich.", hint: "Nenne die Personengruppe oder ihr Vorwissen und einen gewünschten Ton.", action: "Ergänze selbst, für wen die Erklärung gedacht ist und wie sie klingen soll."),
+        PromptLesson(id: "format", title: "Form und Länge wählen", principle: "Wähle eine Form, die du anschließend gut verwenden kannst.", baseline: "Fasse den folgenden Text zusammen: [Text].", solution: "Fasse den folgenden Text in fünf kurzen Stichpunkten zusammen: [Text].", hint: "Möglich sind etwa Absätze, eine Tabelle oder Stichpunkte. Eine Länge kann beim Eingrenzen helfen.", action: "Beschreibe eine gewünschte Ausgabeform und ihre Länge."),
+        PromptLesson(id: "followup", title: "Gezielt nachfragen", principle: "Benenne die Lücke in der Antwort und den nächsten gewünschten Schritt.", baseline: "Die Antwort lautet: „Du könntest dich besser organisieren.“ Das ist mir zu allgemein.", solution: "Mach daraus bitte drei konkrete Schritte, die ich heute ausprobieren kann. Frage nach, wenn dir dafür eine wichtige Angabe fehlt.", hint: "Bitte zum Beispiel um ein Beispiel oder einen konkreten nächsten Schritt. Füge keine erfundenen Umstände hinzu.", action: "Formuliere eine Rückfrage, die aus der allgemeinen Antwort etwas Konkretes macht."),
+        PromptLesson(id: "check", title: "Eine Antwort prüfen", principle: "Vergleiche wichtige Aussagen mit deiner Anfrage, bevor du sie übernimmst.", baseline: "Deine Anfrage: „Das Treffen ist Dienstag um 16 Uhr.“\nDie Antwort: „Wir treffen uns Mittwoch um 16 Uhr.“", solution: "Der Wochentag stimmt nicht: In meiner Anfrage steht Dienstag, in der Antwort Mittwoch. Bitte korrigiere den Tag und behalte 16 Uhr bei.", hint: "Prüfe Tag und Uhrzeit einzeln. Welche Angabe weicht tatsächlich ab?", action: "Benenne die tatsächliche Abweichung und bitte um eine gezielte Korrektur.")
+    ]
+
+    public static func lookup(_ id: String) -> PromptLesson? { lessons.first { $0.id == id } }
+
+    /// Deterministic checks for these six fixed exercises, not an unrestricted semantic grading model.
+    /// The feedback always makes its limited observation explicit and never scores general ability.
+    public static func evaluate(answer: String, lesson: PromptLesson, usedHint: Bool = false, revealedSolution: Bool = false) -> LessonFeedback {
+        let text = answer.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return LessonFeedback(observation: "Schreib zuerst deine eigene Idee auf. Hilfe bleibt jederzeit verfügbar.", independentApplication: false) }
+        let lower = text.lowercased()
+        func matches(_ pattern: String) -> Bool { lower.range(of: pattern, options: .regularExpression) != nil }
+        let uncertain = matches("\\b(keine ahnung|weiß (ich )?nicht|weiss (ich )?nicht|keine idee|weiß nicht wie)\\b")
+        var matchesTask = false
+        var detail = ""
+        switch lesson.id {
+        case "goal":
+            matchesTask = matches("\\b(bitte|bitten|möchte|soll|um|lade|sage|absagen|einladen|informieren|frage)\\b") && matches("\\b(termin|terminvorschlag|absagen|absage|einladen|einladung|rückmeldung|bestätigung|antwort|informieren)\\b")
+            detail = "Du nennst eine konkrete Absicht für die E-Mail. Prüfe, ob eine lesende Person daraus die gewünschte Reaktion erkennt."
+        case "context":
+            matchesTask = matches("\\b([0-9]{1,3}|zehn|zwanzig|dreißig|dreissig|vierzig|sechzig|eine|einer)\\s*(minuten?|stunden?)\\b") || matches("\\b(start|starten|beginne|ab|vom)\\s+(?:am |beim |dem |der )?[\\p{L}]{3,}")
+            detail = "Du gibst eine Dauer oder einen Startbezug an. Prüfe noch, ob der Startort eindeutig und tatsächlich bekannt ist."
+        case "audience":
+            let audience = matches("\\b(ohne vorkenntnisse|anfänger|anfängerin|kinder|fachleute|einsteiger|erwachsene|kolleginnen|kollegen|schüler|schülerinnen)\\b")
+            let tone = matches("\\b(verständlich|einfach|sachlich|freundlich|ruhig|förmlich|locker|klar|respektvoll)\\b")
+            matchesTask = audience && tone
+            detail = "Du erwähnst eine Zielgruppe oder ihr Vorwissen und einen Ton. Prüfe, ob beides für diese Erklärung passt."
+        case "format":
+            let format = matches("\\b(stichpunkte[nr]?|absätze[n]?|absatz|tabelle|liste|sätze[n]?|satz|zeilen?)\\b")
+            let length = matches("\\b([0-9]{1,3}|ein|eine|einen|zwei|drei|vier|fünf|sechs|zehn)\\b")
+            let excluded = matches("\\b(keine?|nicht|ohne)\\s+(?:[\\p{L}]+\\s+){0,2}(tabelle|liste|stichpunkte|absätze|sätze|zeilen)\\b")
+            matchesTask = format && length && !excluded
+            detail = "Du nennst eine Ausgabeform und eine Anzahl. Prüfe, ob diese Länge zu dem Ausgangstext passt."
+        case "followup":
+            let request = matches("\\b(bitte|gib|zeige|nenn|nenne|mach|mache|beschreibe|erkläre|welche[rns]?|wie|kannst)\\b")
+            matchesTask = request && matches("\\b(beispiel|konkret[eernms]*|schritt[eens]*|heute|anfangen|beginnen)\\b")
+            detail = "Du fragst nach einem Beispiel oder einer konkreten Handlung. Prüfe, ob die Rückfrage genau die zu allgemeine Antwort weiterführt."
+        case "check":
+            let identifies = lower.contains("dienstag") && lower.contains("mittwoch")
+            let wrongDirection = matches("\\b(auf|zu|in)\\s+(den\\s+)?mittwoch\\b|\\bmittwoch\\s+statt\\s+dienstag\\b")
+            matchesTask = identifies && !wrongDirection && matches("\\b(korrigiere|korrigieren|berichtige|ändern|ändere|bitte)\\b")
+            detail = "Du benennst die Abweichung beim Tag und bittest um Korrektur. Die Uhrzeit 16 Uhr kann dabei unverändert bleiben."
+        default:
+            return LessonFeedback(observation: "Diese Übung wird von der lokalen Prüfung noch nicht unterstützt. Deine Eingabe bleibt erhalten.", independentApplication: false)
+        }
+        matchesTask = matchesTask && !uncertain && normalize(text) != normalize(lesson.baseline)
+        let copied = normalize(text) == normalize(lesson.solution)
+        let independent = matchesTask && !usedHint && !revealedSolution && !copied
+        let excerpt = String(text.prefix(220)) + (text.count > 220 ? "…" : "")
+        let next = matchesTask ? detail : "Die lokale Prüfung findet die gesuchte Ergänzung noch nicht eindeutig. \(lesson.action) Du kannst deinen Versuch überarbeiten oder einen Hinweis ansehen."
+        let support: String
+        if copied { support = "Dein Text entspricht der Beispiel-Lösung. Das wird als Übernahme gespeichert, nicht als selbstständige Anwendung." }
+        else if usedHint || revealedSolution { support = "Der Versuch wird mit der verwendeten Hilfe gespeichert." }
+        else if independent { support = "Die konkrete Ergänzung ist als eigener Versuch erfasst. Das ist kein allgemeiner Kompetenznachweis." }
+        else { support = "Dein Versuch bleibt gespeichert; Länge allein zählt nicht als gelungene Anwendung." }
+        return LessonFeedback(observation: "Dein Versuch: „\(excerpt)“\n\n\(next)\n\n\(support)", independentApplication: independent, meetsExercise: matchesTask)
+    }
+
+    public static func stage(for attempts: [LessonAttempt], lessonID: String) -> LessonPracticeStage {
+        let eligible = attempts.filter { $0.lessonID == lessonID && $0.feedback.independentApplication && !$0.usedHint && !$0.revealedSolution }
+        let count = Set(eligible.map { normalize($0.answer) }).count
+        if count >= 4 { return .transfer }
+        if count >= 2 { return .independent }
+        return .guided
+    }
+
+    private static func normalize(_ text: String) -> String {
+        text.lowercased().split(whereSeparator: \.isWhitespace).joined(separator: " ").trimmingCharacters(in: .punctuationCharacters)
+    }
+}

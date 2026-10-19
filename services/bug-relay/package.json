@@ -1,0 +1,15 @@
+{
+  "name": "sinnfaden-bug-relay",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "check": "node --check worker.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "wrangler": "4.151.2"
+  }
+}

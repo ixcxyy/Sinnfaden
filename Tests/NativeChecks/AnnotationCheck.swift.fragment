@@ -1,0 +1,152 @@
+@main struct AnnotationCheck {
+    @MainActor static func main() {
+        _ = NSApplication.shared
+        let segments = [PromptSegment(id: "s1", text: "Ärger 👩🏽‍💻 e\u{301}\n"), PromptSegment(id: "s2", text: "Wiederholung\nWiederholung — eine etwas längere deutsche Formulierung mit Umlauten."), PromptSegment(id: "s3", text: "\nEnde.")]
+        let change = PromptChange(id: "c1", kind: .addition, targetSegmentIDs: ["s2"], category: "goal", title: "Ziel", explanation: "Das Ziel wird sichtbar.")
+        let response = CoachResponse(status: .improved, coachMessage: "Test", segments: segments, changes: [change])
+        var checks = 0
+        for width in [220.0, 560.0, 1000.0] {
+            for size in [17.0, 26.0] {
+                let view = AnnotationTextView(frame: NSRect(x: 0, y: 0, width: width, height: 1000))
+                view.textContainerInset = .zero
+                view.textContainer?.lineFragmentPadding = 0
+                view.textContainer?.containerSize = NSSize(width: width, height: 10000)
+                view.configure(response: response, changes: [change], fontSize: size)
+                guard view.string == response.prompt else { fatalError("Text diverged") }
+                let range = response.segmentRanges["s2"]!
+                guard (view.string as NSString).substring(with: range) == segments[1].text else { fatalError("Unicode mismatch") }
+                guard view.textStorage!.attribute(.init("SinnfadenChangeID"), at: range.location, effectiveRange: nil) as? String == "c1" else { fatalError("Link shifted") }
+                guard view.textStorage!.attribute(.init("SinnfadenChangeID"), at: 0, effectiveRange: nil) == nil else { fatalError("First segment annotated") }
+                view.layoutManager!.ensureLayout(for: view.textContainer!)
+                guard view.layoutManager!.usedRect(for: view.textContainer!).width <= width + 1 else { fatalError("Text overflows") }
+                checks += 5
+            }
+        }
+        let boundary = NSRect(x: 40, y: 40, width: 700, height: 500)
+        for anchor in [NSRect(x: 40,y: 40,width: 80,height: 24), NSRect(x: 690,y: 490,width: 50,height: 24), NSRect(x: 300,y: 300,width: 80,height: 24)] {
+            let result = AnnotationPresentation.position(size: CGSize(width: 340, height: 210), anchor: anchor, boundary: boundary)
+            guard boundary.contains(result) else { fatalError("Bubble outside window") }
+            guard !result.intersects(anchor) else { fatalError("Bubble covers anchor") }
+            checks += 2
+        }
+        // Regression: fitting the full window is insufficient when neither side of
+        // a middle anchor has room. Choose inline before creating a clipping canvas.
+        let mediumWindow = CGRect(x: 0, y: 0, width: 700, height: 600)
+        let middleAnchor = CGRect(x: 300, y: 288, width: 80, height: 24)
+        guard AnnotationGeometry.fittedPosition(size: CGSize(width: 350, height: 350), anchor: middleAnchor, boundary: mediumWindow) == nil else { fatalError("Tall bubble must fall back inline") }
+        guard let exact = AnnotationGeometry.fittedPosition(size: CGSize(width: 350, height: 272), anchor: middleAnchor, boundary: mediumWindow),
+              mediumWindow.contains(exact), !exact.intersects(middleAnchor) else { fatalError("Exact side fit rejected") }
+        guard AnnotationGeometry.fittedPosition(size: CGSize(width: 350, height: 273), anchor: middleAnchor, boundary: mediumWindow) == nil else { fatalError("Source gap omitted from fit check") }
+        checks += 3
+        // Same visible string, ID and explanation can have new target segments or
+        // segment boundaries. Both must invalidate the native attributed-text cache.
+        let cachedView = AnnotationTextView(frame: CGRect(x: 0, y: 0, width: 500, height: 200))
+        var cachedChange = PromptChange(id: "cache", kind: .addition, targetSegmentIDs: ["a"], category: "goal", title: "Ziel", explanation: "Unverändert")
+        var cachedResponse = CoachResponse(status: .improved, coachMessage: "Test", segments: [PromptSegment(id: "a", text: "Alpha "), PromptSegment(id: "b", text: "Beta")], changes: [cachedChange])
+        cachedView.configure(response: cachedResponse, changes: [cachedChange], fontSize: 17)
+        cachedChange.targetSegmentIDs = ["b"]
+        cachedResponse.changes = [cachedChange]
+        cachedView.configure(response: cachedResponse, changes: [cachedChange], fontSize: 17)
+        guard cachedView.textStorage!.attribute(.init("SinnfadenChangeID"), at: 0, effectiveRange: nil) == nil else { fatalError("Old target annotation retained") }
+        guard cachedView.textStorage!.attribute(.init("SinnfadenChangeID"), at: 6, effectiveRange: nil) as? String == "cache" else { fatalError("New target not annotated") }
+        cachedResponse.segments = [PromptSegment(id: "a", text: "A"), PromptSegment(id: "b", text: "lpha Beta")]
+        cachedView.configure(response: cachedResponse, changes: [cachedChange], fontSize: 17)
+        guard cachedView.textStorage!.attribute(.init("SinnfadenChangeID"), at: 1, effectiveRange: nil) as? String == "cache" else { fatalError("Changed segment boundary ignored") }
+        checks += 3
+        // Cursor response continues after opening and remains bounded at any distance.
+        let offset = AnnotationGeometry.cursorOffset(pointer: CGPoint(x: 40, y: -20), origin: .zero)
+        guard abs(offset.width - 12.8) < 0.001 && abs(offset.height + 6.4) < 0.001 else { fatalError("Cursor gain changed") }
+        let bounded = AnnotationGeometry.cursorOffset(pointer: CGPoint(x: 900, y: -900), origin: .zero)
+        guard bounded.width == 28 && bounded.height == -14 else { fatalError("Cursor bounds missing") }
+        checks += 2
+        // The analytic spring follows elapsed time equally at 30, 60 and 120 Hz.
+        var positions: [CGFloat] = []
+        for fps in [30, 60, 120] {
+            var spring = AnnotationSpring(0); spring.target = 28
+            for _ in 0..<(fps / 5) { spring.advance(1.0 / Double(fps)) }
+            positions.append(spring.value)
+        }
+        guard abs(positions[0] - positions[1]) < 0.001 && abs(positions[1] - positions[2]) < 0.001 else { fatalError("Frame-rate-dependent follow") }
+        var interrupted = AnnotationSpring(0); interrupted.target = 100; interrupted.advance(0.07)
+        let before = interrupted.value; interrupted.target = -25
+        guard interrupted.value == before else { fatalError("Retarget jumps") }
+        interrupted.advance(0.016)
+        guard interrupted.value.isFinite else { fatalError("Invalid interrupted spring") }
+        checks += 3
+        let line1 = CGRect(x: 10, y: 80, width: 180, height: 24)
+        let line2 = CGRect(x: 10, y: 50, width: 260, height: 24)
+        guard AnnotationGeometry.nearestRect([line1, line2], to: CGPoint(x: 240, y: 60)) == line2 else { fatalError("Wrapped anchor mismatch") }
+        let body = CGRect(x: 0, y: 0, width: 300, height: 180)
+        let anchor = CGRect(x: 70, y: 200, width: 90, height: 24)
+        guard AnnotationGeometry.transitionContains(CGPoint(x: 110, y: 190), anchor: anchor, body: body) else { fatalError("Gap is not traversable") }
+        guard !AnnotationGeometry.transitionContains(CGPoint(x: 500, y: 190), anchor: anchor, body: body) else { fatalError("Corridor too broad") }
+        checks += 3
+        // Liquid lens outline: neck reaches the words, corners stay soft, text area stays inside.
+        let lens = AnnotationLensShape.make(AnnotationLensForm(body: body, roundness: AnnotationTuning.restRoundness,
+                                                               tip: CGPoint(x: 110, y: 197), neckWidth: AnnotationTuning.restNeck))
+        guard lens.contains(CGPoint(x: 110, y: 190)) else { fatalError("No liquid neck") }
+        guard !lens.contains(CGPoint(x: 0, y: 0)) && !lens.contains(CGPoint(x: 300, y: 180)) else { fatalError("Lens corners not rounded") }
+        let textArea = body.insetBy(dx: 18, dy: 16)
+        for corner in [CGPoint(x: textArea.minX, y: textArea.minY), CGPoint(x: textArea.maxX, y: textArea.minY),
+                       CGPoint(x: textArea.minX, y: textArea.maxY), CGPoint(x: textArea.maxX, y: textArea.maxY)] {
+            guard lens.contains(corner) else { fatalError("Reading area leaves the lens") }
+        }
+        guard lens.points.allSatisfy({ $0.x.isFinite && $0.y.isFinite }) else { fatalError("Invalid outline") }
+        let gaps = zip(lens.points, lens.points.dropFirst() + [lens.points[0]]).map { hypot($0.x - $1.x, $0.y - $1.y) }
+        guard gaps.max()! < 9 else { fatalError("Outline has a gap") }
+        let nucleus = AnnotationLensShape.make(AnnotationLensForm(body: CGRect(x: 0, y: 0, width: 14, height: 14), roundness: 2,
+                                                                  tip: CGPoint(x: 7, y: 17), neckWidth: 24))
+        guard nucleus.contains(CGPoint(x: 7, y: 7)) else { fatalError("Formation nucleus missing") }
+        let inside = AnnotationLensShape.make(AnnotationLensForm(body: body, roundness: 5, tip: CGPoint(x: 150, y: 90), neckWidth: 15))
+        guard !inside.contains(CGPoint(x: 150, y: 185)) && inside.contains(CGPoint(x: 150, y: 175)) else { fatalError("Neck formed inside the body") }
+        func area(_ points: [CGPoint]) -> CGFloat {
+            abs(zip(points, points.dropFirst() + [points[0]]).reduce(0) { $0 + $1.0.x * $1.1.y - $1.1.x * $1.0.y }) / 2
+        }
+        let calm = AnnotationLensShape.make(AnnotationLensForm(body: body, roundness: 5, tip: nil, neckWidth: 15))
+        let leaning = AnnotationLensShape.make(AnnotationLensForm(body: body, roundness: 5, tip: nil, neckWidth: 15, lean: CGVector(dx: 7, dy: 0)))
+        guard abs(area(leaning.points) / area(calm.points) - 1) < 0.03 else { fatalError("Cursor lean changes volume") }
+        guard leaning.points.map(\.x).max()! > calm.points.map(\.x).max()! + 5 else { fatalError("Lean not visible") }
+        checks += 9
+        // Edges that grow or lead a move are faster; retargeting never jumps.
+        var motion = AnnotationLensMotion(frame: body, tip: .zero)
+        motion.retarget(body.offsetBy(dx: 30, dy: 0), lead: AnnotationTuning.followLead, trail: AnnotationTuning.followTrail)
+        guard motion.right.response == AnnotationTuning.followLead.response,
+              motion.left.response == AnnotationTuning.followTrail.response else { fatalError("Lead/trail edges swapped") }
+        for _ in 0..<6 { motion.advance(1.0 / 120, reduced: false) }
+        guard motion.frame.width > body.width + 0.5 else { fatalError("No elastic stretch while following") }
+        let beforeMorph = motion.frame
+        motion.retarget(CGRect(x: 0, y: 0, width: 392, height: 260), lead: AnnotationTuning.morphGrow, trail: AnnotationTuning.morphShrink)
+        guard motion.frame == beforeMorph else { fatalError("Morph retarget jumps") }
+        motion.retarget(CGRect(x: 140, y: 170, width: 12, height: 12), lead: AnnotationTuning.retractFar, trail: AnnotationTuning.retractNear)
+        for _ in 0..<10 { motion.advance(1.0 / 120, reduced: false) }
+        let midRetract = motion.frame, velocity = motion.top.velocity
+        motion.retarget(body, lead: AnnotationTuning.formLead, trail: AnnotationTuning.formTrail)
+        guard motion.frame == midRetract && motion.top.velocity == velocity else { fatalError("Reversal restarts the animation") }
+        guard AnnotationGeometry.rubber(50, min: 0, max: 100) == 50,
+              AnnotationGeometry.rubber(140, min: 0, max: 100) < 105 else { fatalError("Edge limit is not soft") }
+        let short = AnnotationGeometry.readingWidth(textLength: 40, limit: 500)
+        let long = AnnotationGeometry.readingWidth(textLength: 400, limit: 500)
+        guard short == 280 && long == 392 && AnnotationGeometry.readingWidth(textLength: 400, limit: 300) == 300 else { fatalError("Width ignores text amount") }
+        let lines = [CGRect(x: 200, y: 100, width: 120, height: 20), CGRect(x: 10, y: 72, width: 90, height: 20)]
+        guard AnnotationGeometry.facing(lines, below: true) == lines[1], AnnotationGeometry.facing(lines, below: false) == lines[0],
+              AnnotationGeometry.union(lines) == lines[0].union(lines[1]) else { fatalError("Wrapped anchor selection") }
+        checks += 8
+        // Glyph-tight anchor fragments exclude trailing spaces.
+        let anchorView = AnnotationTextView(frame: NSRect(x: 0, y: 0, width: 600, height: 200))
+        anchorView.textContainer?.containerSize = NSSize(width: 600, height: 10000)
+        let spaced = PromptChange(id: "sp", kind: .addition, targetSegmentIDs: ["t"], category: "goal", title: "T", explanation: "E")
+        anchorView.configure(response: CoachResponse(status: .improved, coachMessage: "x", segments: [PromptSegment(id: "t", text: "Wort   "), PromptSegment(id: "u", text: "danach")], changes: [spaced]), changes: [spaced], fontSize: 17)
+        let wordOnly = anchorView.fragmentRects(for: "sp")
+        guard wordOnly.count == 1, wordOnly[0].width < 60 else { fatalError("Anchor includes trailing whitespace") }
+        checks += 1
+        let state = AnnotationBubbleState()
+        let shortHost = NSHostingView(rootView: AnnotationBubbleContent(state: state, change: change, width: 300, close: {}, pin: {}, compare: nil))
+        var longerChange = change
+        longerChange.explanation = "Sag dazu, für wen die Erklärung gedacht ist. So kann die Antwort passende Begriffe und Beispiele auswählen. Für eine kurze allgemeine Definition ist diese Ergänzung nicht immer nötig. Du kannst selbst entscheiden, welche Angaben zur Aufgabe beitragen."
+        let longer = NSHostingView(rootView: AnnotationBubbleContent(state: state, change: longerChange, width: 350, close: {}, pin: {}, compare: nil))
+        guard shortHost.fittingSize.width == 300 && longer.fittingSize.width == 350 else { fatalError("Text measurement not constrained") }
+        guard longer.fittingSize.height > shortHost.fittingSize.height else { fatalError("Bubble doesn't adapt to content") }
+        checks += 2
+        print("Native annotation checks passed: \(checks). Unicode, layout, cursor bounds, frame-independent damping, retargeting, wrapped anchors, corridor, liquid outline, volume, lead/trail edges, reversal, soft limits, width choice, glyph-tight anchors, content sizing, inline overflow fallback and annotation-cache invalidation.")
+    }
+}
