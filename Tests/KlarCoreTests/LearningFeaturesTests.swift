@@ -146,6 +146,40 @@ final class LearningFeaturesTests: XCTestCase {
         }
     }
 
+    func testLessonsDoNotCountNegatedRequestsAsLearningEvidence() throws {
+        let cases: [(String, String)] = [
+            ("goal", "Bitte keine Einladung und keine Absage."),
+            ("context", "Plane einen Spaziergang, aber keine 20 Minuten."),
+            ("context", "Plane einen Spaziergang ab morgen."),
+            ("context", "Plane einen Spaziergang ab dem nächsten Montag."),
+            ("audience", "Nicht für Kinder und bitte nicht freundlich."),
+            ("followup", "Bitte keine konkreten Schritte und kein Beispiel.")
+        ]
+        for (id, answer) in cases {
+            let lesson = try XCTUnwrap(LessonCatalog.lookup(id))
+            let feedback = LessonCatalog.evaluate(answer: answer, lesson: lesson)
+            XCTAssertFalse(feedback.meetsExercise, answer)
+            XCTAssertFalse(feedback.independentApplication, answer)
+        }
+    }
+
+    func testLessonsAcceptAConcreteAlternativeAfterANegatedRequest() throws {
+        let cases: [(String, String)] = [
+            ("goal", "Bitte keine Einladung, sondern eine Absage zum Termin."),
+            ("context", "Plane einen Spaziergang. Start am Bahnhof."),
+            ("context", "Der Start ist am Bahnhof."),
+            ("context", "Plane einen Spaziergang ab Wien Mitte."),
+            ("context", "Bitte nicht mehr als 20 Minuten gehen."),
+            ("audience", "Nicht für Kinder, sondern für Erwachsene. Schreibe sachlich und klar."),
+            ("audience", "Für eine Person ohne Vorkenntnisse. Bitte freundlich erklären."),
+            ("followup", "Bitte statt allgemeiner Tipps drei konkrete Schritte.")
+        ]
+        for (id, answer) in cases {
+            let lesson = try XCTUnwrap(LessonCatalog.lookup(id))
+            XCTAssertTrue(LessonCatalog.evaluate(answer: answer, lesson: lesson).meetsExercise, answer)
+        }
+    }
+
     func testScaffoldRequiresDistinctIndependentApplicationsForSamePrinciple() throws {
         let lesson = try XCTUnwrap(LessonCatalog.lookup("format"))
         func attempt(_ answer: String, hint: Bool = false) -> LessonAttempt {

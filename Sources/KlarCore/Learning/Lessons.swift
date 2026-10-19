@@ -59,21 +59,30 @@ public enum LessonCatalog {
         guard !text.isEmpty else { return LessonFeedback(observation: "Schreib zuerst deine eigene Idee auf. Hilfe bleibt jederzeit verfügbar.", independentApplication: false) }
         let lower = text.lowercased()
         func matches(_ pattern: String) -> Bool { lower.range(of: pattern, options: .regularExpression) != nil }
+        func affirmed(_ pattern: String) -> Bool { containsAffirmed(pattern, in: lower) }
         let uncertain = matches("\\b(keine ahnung|weiß (ich )?nicht|weiss (ich )?nicht|keine idee|weiß nicht wie)\\b")
         var matchesTask = false
         var detail = ""
         var missingDetail: String?
         switch lesson.id {
         case "goal":
-            matchesTask = matches("\\b(bitte|bitten|möchte|soll|um|lade|sage|absagen|einladen|informieren|frage)\\b") && matches("\\b(termin|terminvorschlag|absagen|absage|einladen|einladung|rückmeldung|bestätigung|antwort|informieren)\\b")
+            matchesTask = matches("\\b(bitte|bitten|möchte|soll|um|lade|sage|absagen|einladen|informieren|frage)\\b") && affirmed("\\b(termin|terminvorschlag|absagen|absage|einladen|einladung|rückmeldung|bestätigung|antwort|informieren)\\b")
             detail = "Du nennst eine konkrete Absicht für die E-Mail. Prüfe, ob eine lesende Person daraus die gewünschte Reaktion erkennt."
         case "context":
-            matchesTask = matches("\\b([0-9]{1,3}|zehn|zwanzig|dreißig|dreissig|vierzig|sechzig|eine|einer)\\s*(minuten?|stunden?)\\b") || matches("\\b(start|starten|beginne|ab|vom)\\s+(?:am |beim |dem |der )?[\\p{L}]{3,}")
+            let duration = affirmed("\\b([1-9][0-9]{0,2}|zehn|zwanzig|dreißig|dreissig|vierzig|sechzig|eine|einer)\\s*(minuten?|stunden?)\\b")
+            let place = "(?!(?:dem|der|den|die|das|ist|morgen|übermorgen|heute|jetzt|sofort|bald|dann|nun|nächste[nrms]?|kommende[nrms]?|montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag)\\b)[\\p{L}]{3,}"
+            let start = affirmed("\\b(?:start(?:ort)?|starte[n]?|beginne[n]?)\\s+(?:(?:ist|liegt)\\s+)?(?:am|beim|in|im|bei|vom|an der|an dem)\\s+" + place
+                + "|\\b(?:ab|vom)\\s+(?:(?:dem|der)\\s+)?" + place
+                + "|\\b(?:start|startort)\\s*:\\s*" + place)
+            matchesTask = duration || start
+            if !matchesTask { missingDetail = "Eine gewünschte Dauer oder ein Startort ist noch nicht eindeutig. „Ab morgen“ nennt einen Zeitpunkt; ergänze etwa eine Gehzeit oder den Ort, an dem du losgehen möchtest." }
             detail = "Du gibst eine Dauer oder einen Startbezug an. Prüfe noch, ob der Startort eindeutig und tatsächlich bekannt ist."
         case "audience":
-            let audience = matches("\\b(ohne vorkenntnisse|anfänger|anfängerin|kinder|fachleute|einsteiger|erwachsene|kolleginnen|kollegen|schüler|schülerinnen)\\b")
-            let tone = matches("\\b(verständlich|einfach|sachlich|freundlich|ruhig|förmlich|locker|klar|respektvoll)\\b")
+            let audience = affirmed("\\b(ohne vorkenntnisse|anfänger|anfängerin|kinder|fachleute|einsteiger|erwachsene|kolleginnen|kollegen|schüler|schülerinnen)\\b")
+            let tone = affirmed("\\b(verständlich|einfach|sachlich|freundlich|ruhig|förmlich|locker|klar|respektvoll)\\b")
             matchesTask = audience && tone
+            if !audience { missingDetail = "Nenne, für wen die Erklärung gedacht ist. Eine ausdrücklich ausgeschlossene Zielgruppe reicht dafür noch nicht." }
+            else if !tone { missingDetail = "Die Zielgruppe ist erkennbar. Ergänze, wie die Erklärung klingen soll, etwa sachlich oder freundlich." }
             detail = "Du erwähnst eine Zielgruppe oder ihr Vorwissen und einen Ton. Prüfe, ob beides für diese Erklärung passt."
         case "format":
             let evidence = formatEvidence(in: lower)
@@ -83,7 +92,7 @@ public enum LessonCatalog {
             detail = "Du nennst eine Ausgabeform und eine Anzahl. Prüfe, ob diese Länge zu dem Ausgangstext passt."
         case "followup":
             let request = matches("\\b(bitte|gib|zeige|nenn|nenne|mach|mache|beschreibe|erkläre|welche[rns]?|wie|kannst)\\b")
-            matchesTask = request && matches("\\b(beispiel|konkret[eernms]*|schritt[eens]*|heute|anfangen|beginnen)\\b")
+            matchesTask = request && affirmed("\\b(beispiel|konkret[eernms]*|schritt[eens]*|heute|anfangen|beginnen)\\b")
             detail = "Du fragst nach einem Beispiel oder einer konkreten Handlung. Prüfe, ob die Rückfrage genau die zu allgemeine Antwort weiterführt."
         case "check":
             let identifies = lower.contains("dienstag") && lower.contains("mittwoch")
@@ -124,6 +133,24 @@ public enum LessonCatalog {
 
     private static func normalize(_ text: String) -> String {
         text.lowercased().split(whereSeparator: \.isWhitespace).joined(separator: " ").trimmingCharacters(in: .punctuationCharacters)
+    }
+
+    /// Recognizes nearby explicit negation in these fixed exercises. It is not a general language parser.
+    private static func containsAffirmed(_ pattern: String, in text: String) -> Bool {
+        guard let expression = try? NSRegularExpression(pattern: pattern) else { return false }
+        let separated = text.replacingOccurrences(of: "\\bnicht (?:mehr|länger) als\\b", with: "höchstens", options: .regularExpression)
+            .replacingOccurrences(of: "\\b(?:sondern|stattdessen|aber)\\b|[.;!?\\n]", with: "\n", options: .regularExpression)
+        let negativePrefix = "\\b(?:nicht|kein(?:e[nmrs]?)?|ohne(?!\\s+vorkenntnisse\\b))\\s+(?:[\\p{L}]+\\s+){0,3}$"
+        for clause in separated.components(separatedBy: "\n") {
+            let source = clause as NSString
+            for match in expression.matches(in: clause, range: NSRange(location: 0, length: source.length)) {
+                let before = source.substring(to: match.range.location)
+                let after = source.substring(from: NSMaxRange(match.range))
+                if before.range(of: negativePrefix, options: .regularExpression) == nil,
+                   after.range(of: "^\\s+(?:bitte\\s+)?nicht\\b", options: .regularExpression) == nil { return true }
+            }
+        }
+        return false
     }
 
     private static func formatEvidence(in text: String) -> (form: Bool, length: Bool) {
