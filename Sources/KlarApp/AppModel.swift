@@ -311,6 +311,7 @@ final class AppModel: ObservableObject {
             self.response = result
             self.editedPrompt = result.prompt
             self.solutionRevealed = true
+            self.exerciseHelp = result.status == .improved && result.exercise != nil
             self.phase = .showingResult
             self.activeAttempt = nil
         }
@@ -351,9 +352,8 @@ final class AppModel: ObservableObject {
 
     func submitPractice() {
         guard let exercise = response?.exercise, !exerciseAnswer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        let answer = exerciseAnswer.trimmingCharacters(in: .whitespacesAndNewlines)
-        let copiedProposal = answer == visiblePrompt.trimmingCharacters(in: .whitespacesAndNewlines)
-            || answer == response?.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        let copiedProposal = LearningFeedback.matchesExample(exerciseAnswer, example: visiblePrompt)
+            || LearningFeedback.matchesExample(exerciseAnswer, example: response?.prompt ?? "")
         let usedHelp = exerciseHelp || copiedProposal
         exerciseFeedback = copiedProposal
             ? "Deine Antwort entspricht dem Vorschlag. Dieser Versuch zählt als unterstützt. Probiere für einen eigenen Versuch eine passende Angabe in deinen Worten."
@@ -395,7 +395,9 @@ final class AppModel: ObservableObject {
         restoreInputValues(entry.inputValues)
         editedPrompt = entry.editedPrompt ?? displayedResponse?.prompt ?? ""
         manuallyEdited = entry.editedPrompt != nil; editing = false; copied = false; solutionRevealed = true
-        showExercise = false; exerciseAnswer = ""; exerciseFeedback = ""; exerciseHelp = false
+        showExercise = false; exerciseAnswer = ""; exerciseFeedback = ""
+        // History shows the worked solution immediately, just like choosing “Vorschlag ansehen”.
+        exerciseHelp = entry.response?.status == .improved && entry.response?.exercise != nil
         errorMessage = nil; clarificationAnswer = ""
         phase = entry.response?.status == .needs_clarification ? .clarifying : (entry.response == nil ? .ready : .showingResult)
         page = .coach

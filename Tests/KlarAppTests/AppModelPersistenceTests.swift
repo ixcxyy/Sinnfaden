@@ -217,4 +217,48 @@ final class AppModelPersistenceTests: XCTestCase {
         XCTAssertEqual(reopened.visiblePrompt, "Meine eigene Einladung")
         XCTAssertEqual(reopened.inputValues["place"], "im Park")
     }
+
+    func testPracticeAfterOpeningWorkedExampleFromHistoryIsMarkedSupported() async throws {
+        let root = try temporaryDirectory()
+        let app = model(at: root)
+        var first = entry()
+        first.response?.exercise = CoachExercise(id: "practice", question: "Ergänze eine konkrete Angabe.", category: "Kontext")
+        app.select(first)
+        XCTAssertTrue(app.solutionRevealed, "Opening history displays the worked example")
+        app.exerciseAnswer = "Bitte schlage einen Treffpunkt mit Sitzgelegenheiten vor."
+        app.submitPractice()
+        let attempts = try XCTUnwrap(app.history.first { $0.id == first.id }?.practiceAttempts)
+        XCTAssertEqual(attempts.last?.helpUsed, true)
+        XCTAssertTrue(app.exerciseFeedback.contains("unterstützt"))
+        XCTAssertEqual(LearningProgress.stage(for: attempts), .example)
+    }
+
+    func testReopeningAnAlreadyGoodOriginalDoesNotClaimExampleHelp() async throws {
+        let root = try temporaryDirectory()
+        let app = model(at: root)
+        let original = "Erkläre Regen in drei Sätzen."
+        let response = CoachResponse(status: .already_good, coachMessage: "Schon klar.",
+                                     segments: [PromptSegment(id: "s1", text: original)],
+                                     exercise: CoachExercise(id: "practice", question: "Formuliere eine andere Anfrage.", category: "Transfer"))
+        let first = HistoryEntry(original: original, response: response)
+        app.select(first)
+        app.exerciseAnswer = "Erkläre Schnee für Einsteiger mit einem Beispiel."
+        app.submitPractice()
+        XCTAssertEqual(app.history.first { $0.id == first.id }?.practiceAttempts.last?.helpUsed, false)
+    }
+
+    func testCopiedPracticeWithFormattingChangesDoesNotCountAsIndependent() async throws {
+        let root = try temporaryDirectory()
+        let app = model(at: root)
+        let original = "Erkläre Regen\nin drei Sätzen."
+        let response = CoachResponse(status: .already_good, coachMessage: "Schon klar.",
+                                     segments: [PromptSegment(id: "s1", text: original)],
+                                     exercise: CoachExercise(id: "practice", question: "Formuliere eine neue Anfrage.", category: "Transfer"))
+        let first = HistoryEntry(original: original, response: response)
+        app.select(first)
+        app.exerciseAnswer = "  ERKLÄRE  Regen in drei Sätzen. "
+        app.submitPractice()
+        XCTAssertEqual(app.history.first { $0.id == first.id }?.practiceAttempts.last?.helpUsed, true)
+        XCTAssertTrue(app.exerciseFeedback.contains("entspricht dem Vorschlag"))
+    }
 }

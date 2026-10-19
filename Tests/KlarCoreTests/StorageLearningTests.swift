@@ -3,6 +3,14 @@ import SQLite3
 @testable import KlarCore
 
 final class StorageLearningTests: XCTestCase {
+    func testWhitespaceOnlyPracticeVariationsDoNotAdvanceLearningStage() {
+        let answers = ["Für Anfänger in drei Sätzen.", " Für Anfänger\nin drei Sätzen. ", "FÜR   ANFÄNGER\tin drei Sätzen."]
+        let attempts = answers.map { PracticeAttempt(answer: $0, feedback: "Eigene Idee", helpUsed: false) }
+        XCTAssertEqual(LearningProgress.stage(for: attempts), .addDetail)
+        let changed = PracticeAttempt(answer: "Für Anfänger in fünf Sätzen.", feedback: "Neue Länge", helpUsed: false)
+        XCTAssertEqual(LearningProgress.stage(for: attempts + [changed]), .newPrompt)
+    }
+
     private func temporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("klar-tests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)

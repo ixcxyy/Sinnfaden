@@ -16,6 +16,20 @@ final class LearningPersistenceFailureTests: XCTestCase {
                           isDemo: true, storageBaseURL: root)
     }
 
+    func testCorrectedRecipeClearsObsoleteErrorAfterSuccessfulSave() async throws {
+        let root = try temporaryDirectory()
+        let app = workspace(at: root)
+        app.switchAccount("recipe-retry")
+        var recipe = PromptRecipe(title: "Korrigierte Vorlage", template: "{{fehlend}}")
+        app.saveRecipe(recipe)
+        XCTAssertNotNil(app.errorMessage)
+        recipe.template = "Erkläre Regen in drei Sätzen."
+        app.saveRecipe(recipe)
+        XCTAssertNil(app.errorMessage)
+        XCTAssertNil(app.storageError)
+        XCTAssertEqual(try LearningStore(accountID: "recipe-retry", baseURL: root).load().recipes.first { $0.id == recipe.id }?.template, recipe.template)
+    }
+
     func testFailedSaveSurvivesAccountSwitchWithoutCrossAccountDisclosure() async throws {
         let root = try temporaryDirectory()
         let storeA = try LearningStore(accountID: "account-a", baseURL: root)

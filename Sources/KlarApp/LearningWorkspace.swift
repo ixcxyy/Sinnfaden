@@ -227,7 +227,16 @@ final class LearningWorkspace: ObservableObject {
     func cancelFollowUp() { if followUpBusy { statusMessage = "Abgebrochen. Deine eingefügte Antwort und dein Wunsch bleiben erhalten." }; followUpGeneration = nil; followUpTask?.cancel(); followUpTask = nil; followUpBusy = false }
     func cancelAll() { cancelComparison(); cancelFollowUp() }
 
-    func saveRecipe(_ recipe: PromptRecipe) { do { try state.upsertRecipe(recipe); selectedRecipe = recipe.id; flushPendingSave(); statusMessage = hasUnsavedChanges ? "Vorlage im Fenster behalten. Lokales Speichern ist fehlgeschlagen." : "Vorlage gespeichert." } catch { errorMessage = (error as? LocalizedError)?.errorDescription ?? "Die Vorlage konnte nicht gespeichert werden." } }
+    func saveRecipe(_ recipe: PromptRecipe) {
+        statusMessage = ""
+        do {
+            try state.upsertRecipe(recipe)
+            selectedRecipe = recipe.id
+            errorMessage = nil
+            flushPendingSave()
+            statusMessage = hasUnsavedChanges ? "Vorlage im Fenster behalten. Lokales Speichern ist fehlgeschlagen." : "Vorlage gespeichert."
+        } catch { errorMessage = (error as? LocalizedError)?.errorDescription ?? "Die Vorlage konnte nicht gespeichert werden." }
+    }
     func createRecipe(from prompt: String) {
         let recipe = PromptRecipe(title: "Meine Vorlage", template: prompt, principle: "Ersetze nur wechselnde Angaben durch Felder. Feste Grenzen bleiben Teil deiner Vorlage.", fields: [], values: [:])
         saveRecipe(recipe)

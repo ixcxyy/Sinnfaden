@@ -37,6 +37,16 @@ public struct PracticeAttempt: Codable, Identifiable, Equatable, Sendable {
 }
 
 public enum LearningFeedback {
+    /// Formatting and capitalization alone do not turn a shown example into a new answer.
+    public static func matchesExample(_ answer: String, example: String) -> Bool {
+        let normalized = normalizedAnswer(answer)
+        return !normalized.isEmpty && normalized == normalizedAnswer(example)
+    }
+
+    static func normalizedAnswer(_ answer: String) -> String {
+        answer.split(whereSeparator: \.isWhitespace).joined(separator: " ").lowercased()
+    }
+
     /// Conservative local feedback describes observable text. It never certifies task success or understanding.
     public static func evaluate(answer: String, exercise: CoachExercise, usedHelp: Bool) -> String {
         let text = answer.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -59,7 +69,7 @@ public enum LearningFeedback {
         } else {
             observation = "Vergleiche deine Idee mit der Übungsfrage: „\(exercise.question)“ Welche konkrete Angabe würde die Antwort verändern?"
         }
-        let support = usedHelp ? "Du hast dabei Hilfe genutzt; der Versuch bleibt als unterstützt gespeichert." : "Dein eigener Versuch ist gespeichert. Das allein ist noch kein Nachweis, dass das Ergebnis besser wird."
+        let support = usedHelp ? "Du hast dabei Hilfe genutzt; der Versuch ist als unterstützt markiert." : "Dein Versuch ist als eigenständig markiert. Das allein ist noch kein Nachweis, dass das Ergebnis besser wird."
         return "Deine Idee: „\(excerpt)“\n\n\(observation)\n\n\(support)"
     }
 }
@@ -70,7 +80,7 @@ public enum LearningProgress {
     /// Only submitted attempts without help affect the next offered exercise. Copy actions are not accepted here.
     public static func stage(for attempts: [PracticeAttempt]) -> LearningStage {
         let own = attempts.filter { !$0.helpUsed && !$0.answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-        let distinct = Set(own.map { $0.answer.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }).count
+        let distinct = Set(own.map { LearningFeedback.normalizedAnswer($0.answer) }).count
         switch distinct { case 0: return .example; case 1: return .addDetail; case 2: return .newPrompt; default: return .transfer }
     }
 }
