@@ -19,11 +19,17 @@ final class AppModel: ObservableObject {
         didSet {
             guard oldValue != response else { return }
             // Smart default: fields start with values that follow from the user's own words.
-            inputValues = Dictionary(uniqueKeysWithValues: (response?.inputs ?? []).compactMap { input in input.suggestion.map { (input.id, $0) } })
+            restoreInputValues()
         }
     }
     /// Answers to the generated fields, keyed by input id.
-    @Published var inputValues: [String: String] = [:]
+    @Published var inputValues: [String: String] = [:] {
+        didSet {
+            guard !restoringInputValues, oldValue != inputValues else { return }
+            copied = false
+            saveCurrent()
+        }
+    }
     /// The suggestion with every answered placeholder filled in.
     var displayedResponse: CoachResponse? { response.map { $0.filled(with: inputValues) } }
     var openRequiredInputs: [PromptInput] {
@@ -52,7 +58,9 @@ final class AppModel: ObservableObject {
     let handoff = ChatGPTHandoff()
     let isDemo: Bool
     private var store: HistoryStore?
+    private let storageBaseURL: URL?
     private var loadingStore = false
+    private var restoringInputValues = false
     private var task: Task<Void, Never>?
     private var activeAttempt: UUID?
     private var currentEntry: HistoryEntry?
@@ -60,12 +68,13 @@ final class AppModel: ObservableObject {
     private var subscriptions = Set<AnyCancellable>()
     private static let log = Logger(subsystem: "at.klar.promptcoach", category: "coach")
 
-    init() {
-        isDemo = CommandLine.arguments.contains("--demo")
-        diagnostics = DiagnosticsController(isDemo: isDemo)
+    init(isDemo: Bool = CommandLine.arguments.contains("--demo"), storageBaseURL: URL? = nil, connection suppliedConnection: ConnectionManager? = nil) {
+        self.isDemo = isDemo
+        self.storageBaseURL = storageBaseURL
+        diagnostics = DiagnosticsController(isDemo: isDemo, storageBaseURL: storageBaseURL)
         updates = UpdateController(isDemo: isDemo)
-        connection = ConnectionManager(restore: !isDemo)
-        learning = LearningWorkspace(connection: connection, isDemo: isDemo)
+        connection = suppliedConnection ?? ConnectionManager(restore: !isDemo)
+        learning = LearningWorkspace(connection: connection, isDemo: isDemo, storageBaseURL: storageBaseURL)
         connection.onFailure = { [weak diagnostics] error in diagnostics?.record(error, area: .connection) }
         learning.onFailure = { [weak diagnostics] error, area in diagnostics?.record(error, area: area) }
         openStore(account: isDemo ? "demonstration" : "local")
@@ -87,6 +96,12 @@ final class AppModel: ObservableObject {
     var visiblePrompt: String { manuallyEdited || editing ? editedPrompt : (displayedResponse?.prompt ?? "") }
     var canSubmit: Bool { !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && draft.utf16.count <= CoachValidator.maximumInputLength && !busy }
 
+    private func restoreInputValues(_ saved: [String: String]? = nil) {
+        restoringInputValues = true
+        defer { restoringInputValues = false }
+        inputValues = saved ?? response?.suggestedInputValues ?? [:]
+    }
+
     private func synchronizeAccount() {
         let account = isDemo ? "demonstration" : (connection.accountID ?? "local")
         guard observedAccount != account else { return }
@@ -106,7 +121,7 @@ final class AppModel: ObservableObject {
         defer { loadingStore = false }
         store = nil; draft = ""; history = []
         do {
-            let next = try HistoryStore(accountID: account)
+            let next = try HistoryStore(accountID: account, baseURL: storageBaseURL)
             draft = try next.loadDraft()
             history = try next.entries()
             store = next
@@ -312,7 +327,10 @@ final class AppModel: ObservableObject {
             }
         }
         cancel(); currentEntry = entry; draft = entry.original; submittedOriginal = entry.original
-        response = entry.response; editedPrompt = entry.editedPrompt ?? entry.response?.prompt ?? ""
+        response = entry.response
+        // Equal responses can belong to different history entries with different answers.
+        restoreInputValues(entry.inputValues)
+        editedPrompt = entry.editedPrompt ?? displayedResponse?.prompt ?? ""
         manuallyEdited = entry.editedPrompt != nil; editing = false; copied = false; solutionRevealed = true
         showExercise = false; exerciseAnswer = ""; exerciseFeedback = ""; exerciseHelp = false
         errorMessage = nil; clarificationAnswer = ""
@@ -321,8 +339,18 @@ final class AppModel: ObservableObject {
     }
 
     func saveCurrent() {
+        if let response, currentEntry?.response == response { currentEntry?.inputValues = inputValues }
         guard let entry = currentEntry else { return }
-        do { try store?.save(entry); history = try store?.entries() ?? [] }
+        guard let store else { storageError = "Dieser Eintrag kann nur im Fenster bleiben. Bitte kopiere deinen Text vor dem Schließen."; return }
+        do {
+            try store.save(entry)
+            // Editing a field should not decode the entire history on every keystroke.
+            if let index = history.firstIndex(where: { $0.id == entry.id }) { history[index] = entry }
+            else {
+                history.append(entry)
+                history.sort { $0.createdAt == $1.createdAt ? $0.id.uuidString > $1.id.uuidString : $0.createdAt > $1.createdAt }
+            }
+        }
         catch { storageError = "Dieser Eintrag konnte nicht gespeichert werden. Dein Text bleibt im Fenster erhalten." }
     }
 

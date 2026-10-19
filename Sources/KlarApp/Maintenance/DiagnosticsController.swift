@@ -24,9 +24,10 @@ final class DiagnosticsController: ObservableObject {
     private var revision = UUID()
     private var subscription: AnyCancellable?
 
-    init(isDemo: Bool) {
-        let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("KLAR/Diagnostics", isDirectory: true)
+    init(isDemo: Bool, storageBaseURL: URL? = nil) {
+        let root = storageBaseURL ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("KLAR", isDirectory: true)
+        let directory = root.appendingPathComponent("Diagnostics", isDirectory: true)
         journal = DiagnosticJournal(directory: isDemo ? directory.appendingPathComponent("Demo") : directory, version: Self.version, build: Self.build)
         let endpoint = isDemo ? nil : MaintenanceConfiguration.validFeed(Bundle.main.object(forInfoDictionaryKey: "SinnfadenBugReportURL") as? String)
         configured = endpoint != nil

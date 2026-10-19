@@ -16,7 +16,8 @@ let package = Package(
         .target(name: "KlarCore", resources: [.process("Resources")], linkerSettings: [.linkedLibrary("sqlite3")]),
         .executableTarget(name: "KlarApp", dependencies: ["KlarCore", .product(name: "Sparkle", package: "Sparkle")], resources: [.process("Resources")], linkerSettings: [.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])]),
         .executableTarget(name: "KlarProbe", dependencies: ["KlarCore"]),
-        .testTarget(name: "KlarCoreTests", dependencies: ["KlarCore"])
+        .testTarget(name: "KlarCoreTests", dependencies: ["KlarCore"]),
+        .testTarget(name: "KlarAppTests", dependencies: ["KlarApp", "KlarCore"])
     ],
     swiftLanguageVersions: [.v5]
 )

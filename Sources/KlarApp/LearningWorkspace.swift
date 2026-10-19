@@ -22,6 +22,7 @@ final class LearningWorkspace: ObservableObject {
     }
     private let connection: ConnectionManager
     private let isDemo: Bool
+    private let storageBaseURL: URL?
     private var store: LearningStore?
     private var pendingSave: Task<Void, Never>?
     private var loading = false
@@ -31,7 +32,9 @@ final class LearningWorkspace: ObservableObject {
     private var comparisonGeneration: UUID?
     private var followUpGeneration: UUID?
 
-    init(connection: ConnectionManager, isDemo: Bool) { self.connection = connection; self.isDemo = isDemo }
+    init(connection: ConnectionManager, isDemo: Bool, storageBaseURL: URL? = nil) {
+        self.connection = connection; self.isDemo = isDemo; self.storageBaseURL = storageBaseURL
+    }
 
     func switchAccount(_ id: String) {
         guard id != account else { return }
@@ -43,7 +46,7 @@ final class LearningWorkspace: ObservableObject {
         selectedRecipe = nil; selectedComparison = nil; selectedLesson = nil
         errorMessage = nil; storageError = nil; statusMessage = ""; followUpEditing = false
         do {
-            let next = try LearningStore(accountID: id)
+            let next = try LearningStore(accountID: id, baseURL: storageBaseURL)
             state = try next.load(); store = next
         } catch { onFailure?(error, .learning); storageError = "Deine Lerndaten konnten nicht geöffnet werden. Neue Eingaben bleiben nur in diesem Fenster. Exportiere sie vor dem Schließen; vorhandene Dateien bleiben erhalten." }
     }

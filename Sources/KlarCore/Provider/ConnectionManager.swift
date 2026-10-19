@@ -30,6 +30,12 @@ public final class ConnectionManager: ObservableObject {
         if restore, let id = registrations?.selectedID { Task { await selectAccount(id) } }
     }
 
+    /// An unconnected in-memory registration for isolated application tests.
+    init(registrations: RegistrationStore) {
+        self.registrations = registrations
+        savedAccounts = registrations.accounts
+    }
+
     public func restoreSelectedAccount() async -> Bool {
         guard let id = registrations?.selectedID else { return false }
         await selectAccount(id); return true

@@ -93,6 +93,10 @@ public struct CoachResponse: Codable, Equatable, Sendable {
         inputs = try container.decodeIfPresent([PromptInput].self, forKey: .inputs) ?? []
     }
 
+    public var suggestedInputValues: [String: String] {
+        Dictionary(inputs.compactMap { input in input.suggestion.map { (input.id, $0) } }, uniquingKeysWith: { first, _ in first })
+    }
+
     /// Matches placeholders only in the original prompt, never in inserted user text.
     /// Unanswered fields stay visible, and segment IDs survive even when a token spans segments.
     public func filled(with values: [String: String]) -> CoachResponse {

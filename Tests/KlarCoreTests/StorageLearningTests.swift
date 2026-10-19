@@ -41,6 +41,42 @@ final class StorageLearningTests: XCTestCase {
         XCTAssertEqual(try second.loadDraft(), "")
     }
 
+    func testGeneratedFieldsPersistAndExportWithoutRewritingPromptOrAnnotations() throws {
+        let root = try temporaryDirectory()
+        let response = CoachResponse(status: .improved, coachMessage: "Ergänze den Ort.",
+                                     segments: [PromptSegment(id: "s1", text: "Treffen: [Ort]")],
+                                     inputs: [PromptInput(id: "place", label: "Ort", kind: .text, placeholder: "[Ort]", suggestion: "Bahnhof", why: "")])
+        let entry = HistoryEntry(createdAt: Date(timeIntervalSince1970: 1_700_000_000), original: "Ein Treffen", response: response, inputValues: ["place": "Café e\u{301} 👋 [Ort]"])
+        do { try HistoryStore(accountID: "a", baseURL: root).save(entry) }
+        let reopened = try HistoryStore(accountID: "a", baseURL: root)
+        let restored = try XCTUnwrap(reopened.entries().first)
+        XCTAssertEqual(restored, entry)
+        XCTAssertEqual(restored.visiblePrompt, "Treffen: Café e\u{301} 👋 [Ort]")
+        XCTAssertEqual(restored.response, response)
+        XCTAssertTrue(restored.annotationsAreCurrent)
+        let export = try XCTUnwrap(JSONSerialization.jsonObject(with: reopened.exportData()) as? [String: Any])
+        let entries = try XCTUnwrap(export["entries"] as? [[String: Any]])
+        XCTAssertEqual(entries.first?["inputValues"] as? [String: String], entry.inputValues)
+
+        var cleared = entry
+        cleared.inputValues = [:]
+        try reopened.save(cleared)
+        XCTAssertEqual(try reopened.entries().first?.visiblePrompt, "Treffen: [Ort]")
+        let otherAccount = try HistoryStore(accountID: "b", baseURL: root)
+        XCTAssertTrue(try otherAccount.entries().isEmpty)
+    }
+
+    func testHistoryWithoutSavedFieldValuesStillDecodes() throws {
+        let response = CoachResponse(status: .improved, coachMessage: "", segments: [PromptSegment(id: "s1", text: "[Ort]")],
+                                     inputs: [PromptInput(id: "place", label: "Ort", kind: .text, placeholder: "[Ort]", suggestion: "Wien", why: "")])
+        var legacy = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(HistoryEntry(original: "Alt", response: response))) as? [String: Any])
+        legacy.removeValue(forKey: "inputValues")
+        let decoded = try JSONDecoder().decode(HistoryEntry.self, from: JSONSerialization.data(withJSONObject: legacy))
+        XCTAssertNil(decoded.inputValues)
+        XCTAssertEqual(decoded.visiblePrompt, "Wien")
+        XCTAssertEqual(decoded.response, response)
+    }
+
     func testExportIsParseableAndFileIsPrivate() throws {
         let store = try HistoryStore(accountID: "a", baseURL: temporaryDirectory())
         try store.saveDraft("Export Ä😀")
