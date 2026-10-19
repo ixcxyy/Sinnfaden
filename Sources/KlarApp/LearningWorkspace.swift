@@ -25,6 +25,9 @@ final class LearningWorkspace: ObservableObject {
     private let storageBaseURL: URL?
     private var store: LearningStore?
     private var pendingSave: Task<Void, Never>?
+    private var hasUnsavedChanges = false
+    /// Only failed writes are retained, scoped to their original account until a save succeeds.
+    private var unsavedStates: [String: LearningState] = [:]
     private var loading = false
     private var account = ""
     private var comparisonTask: Task<Void, Never>?
@@ -41,18 +44,32 @@ final class LearningWorkspace: ObservableObject {
         cancelAll()
         flushPendingSave()
         loading = true
-        defer { loading = false }
         accountEpoch = UUID(); account = id; store = nil; state = LearningState()
+        hasUnsavedChanges = false
         selectedRecipe = nil; selectedComparison = nil; selectedLesson = nil
         errorMessage = nil; storageError = nil; statusMessage = ""; followUpEditing = false
         do {
             let next = try LearningStore(accountID: id, baseURL: storageBaseURL)
             state = try next.load(); store = next
+            storageError = otherAccountRecoveryWarning
         } catch { onFailure?(error, .learning); storageError = "Deine Lerndaten konnten nicht geöffnet werden. Neue Eingaben bleiben nur in diesem Fenster. Exportiere sie vor dem Schließen; vorhandene Dateien bleiben erhalten." }
+        if let recovered = unsavedStates[id] { state = recovered; hasUnsavedChanges = true }
+        loading = false
+        // Retry only after successfully reading compatible storage; never overwrite an unreadable file.
+        if hasUnsavedChanges { writeCurrentState() }
     }
+
+    private var otherAccountRecoveryWarning: String? {
+        unsavedStates.keys.contains(where: { $0 != account })
+            ? "Nicht gespeicherte Lerndaten eines anderen Kontos bleiben vorübergehend in Sinnfaden erhalten. Wechsle vor dem Schließen zurück und speichere oder exportiere sie."
+            : nil
+    }
+
     private func persist() {
         guard !loading else { return }
+        hasUnsavedChanges = true
         guard store != nil else {
+            if !account.isEmpty { unsavedStates[account] = state }
             storageError = "Deine Lerndaten bleiben nur in diesem Fenster. Exportiere sie vor dem Schließen; die vorhandene Datei wird nicht überschrieben."
             return
         }
@@ -65,8 +82,18 @@ final class LearningWorkspace: ObservableObject {
         }
     }
     private func writeCurrentState() {
-        guard !loading, let store else { return }
-        do { try store.save(state); storageError = nil }
+        guard !loading, hasUnsavedChanges, !account.isEmpty else { return }
+        unsavedStates[account] = state
+        guard let store else {
+            storageError = "Deine nicht gespeicherten Lerndaten sind wieder geöffnet. Exportiere sie vor dem Schließen; die vorhandene Datei wird nicht überschrieben."
+            return
+        }
+        do {
+            try store.save(state)
+            hasUnsavedChanges = false
+            unsavedStates.removeValue(forKey: account)
+            storageError = otherAccountRecoveryWarning
+        }
         catch { onFailure?(error, .learning); storageError = "Deine Lerndaten konnten nicht gespeichert werden. Exportiere deine aktuellen Texte vor dem Schließen. Sie bleiben im Fenster erhalten." }
     }
     func flushPendingSave() {
@@ -200,7 +227,7 @@ final class LearningWorkspace: ObservableObject {
     func cancelFollowUp() { if followUpBusy { statusMessage = "Abgebrochen. Deine eingefügte Antwort und dein Wunsch bleiben erhalten." }; followUpGeneration = nil; followUpTask?.cancel(); followUpTask = nil; followUpBusy = false }
     func cancelAll() { cancelComparison(); cancelFollowUp() }
 
-    func saveRecipe(_ recipe: PromptRecipe) { do { try state.upsertRecipe(recipe); selectedRecipe = recipe.id; flushPendingSave(); statusMessage = storageError == nil ? "Vorlage gespeichert." : "Vorlage im Fenster behalten. Lokales Speichern ist fehlgeschlagen." } catch { errorMessage = (error as? LocalizedError)?.errorDescription ?? "Die Vorlage konnte nicht gespeichert werden." } }
+    func saveRecipe(_ recipe: PromptRecipe) { do { try state.upsertRecipe(recipe); selectedRecipe = recipe.id; flushPendingSave(); statusMessage = hasUnsavedChanges ? "Vorlage im Fenster behalten. Lokales Speichern ist fehlgeschlagen." : "Vorlage gespeichert." } catch { errorMessage = (error as? LocalizedError)?.errorDescription ?? "Die Vorlage konnte nicht gespeichert werden." } }
     func createRecipe(from prompt: String) {
         let recipe = PromptRecipe(title: "Meine Vorlage", template: prompt, principle: "Ersetze nur wechselnde Angaben durch Felder. Feste Grenzen bleiben Teil deiner Vorlage.", fields: [], values: [:])
         saveRecipe(recipe)
@@ -225,7 +252,14 @@ final class LearningWorkspace: ObservableObject {
     func deleteLearningData() {
         guard let store else { storageError = "Die lokale Lerndatei ist nicht zugänglich und konnte nicht gelöscht werden. Deine Texte bleiben im Fenster erhalten."; return }
         cancelAll(); pendingSave?.cancel(); pendingSave = nil
-        do { try store.deleteAll(); loading = true; state = LearningState(recipes: []); loading = false; selectedComparison = nil; selectedRecipe = nil; selectedLesson = nil; persist(); statusMessage = "Lerndaten dieses Kontos gelöscht." }
+        do {
+            try store.deleteAll()
+            loading = true; state = LearningState(recipes: []); loading = false
+            hasUnsavedChanges = false; unsavedStates.removeValue(forKey: account)
+            selectedComparison = nil; selectedRecipe = nil; selectedLesson = nil
+            storageError = otherAccountRecoveryWarning
+            statusMessage = "Lerndaten dieses Kontos gelöscht."
+        }
         catch { errorMessage = "Die Lerndaten konnten nicht vollständig gelöscht werden." }
     }
 }
