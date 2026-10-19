@@ -32,7 +32,7 @@ Claude may be used through its Mac app for necessary design work with a focused 
 5. Review and test each batch; update this document with evidence and next steps. Keep separate release notes for user-visible changes.
 6. Publish a new version only after validation; never replace an existing signed archive with different bytes. Push reviewed source to GitHub, deploy the relay release allowlist and signed static update feed, and prove installation on a separate app copy without altering the owner's draft.
 
-## Current observations (00:05 Vienna)
+## Current observations (00:11 Vienna)
 
 - `README.md` now correctly documents the active reporting/update endpoints and links to free-hosting instructions.
 - Learning feedback uses deliberately limited local rules. Investigate incorrect task-success classifications (negation, wrong correction direction, unrelated numbers, and incomplete answers) with concrete cases.
@@ -50,16 +50,27 @@ First batch passed local diff review, all 103 tests, release compilation, and de
 - Credential reads now run off the main thread and cooperative executor. Account selection ignores late results from a previously selected account. Cancellation prevents delivery of late credentials. Storage permissions and credential contents are unchanged.
 - Baseline: 89 Swift tests passed. Latest full run: **103 tests passed** at 00:04. The malformed-stream regression reproduced three failures before its fix. Logs are under `Artifacts/overnight-*.log`.
 
-Second batch: malformed required prompt segments now fail validation rather than disappearing from the returned prompt; explicit unsupported schema versions are not silently rewritten; unused malformed clarification metadata is ignored, while a required clarification must remain valid. Seven assertions failed before these fixes; **106 Swift tests passed** afterward (`overnight-content-before.log`, `overnight-content-after.log`). Existing pipeline tests verify that validation failure triggers at most one announced repair and preserves the original input.
+Second batch, pushed as **a5af6cb**: malformed required prompt segments now fail validation rather than disappearing from the returned prompt; explicit unsupported schema versions are not silently rewritten; unused malformed clarification metadata is ignored, while a required clarification must remain valid. Seven assertions failed before these fixes; **106 Swift tests passed** afterward (`overnight-content-before.log`, `overnight-content-after.log`). Existing pipeline tests verify that validation failure triggers at most one announced repair and preserves the original input.
+
+### Native UI check
+
+The complete two-batch candidate was built and signature-verified. An isolated copy at `Artifacts/overnight-2026-10-20/Sinnfaden QA.app`, bundle ID `at.klar.promptcoach.overnightqa`, was run with `--demo`. No live account requests were made. The existing demonstration account, separate from the owner's account, received two clearly synthetic lesson attempts.
+
+- Opened Form und Länge wählen through the existing learning navigation.
+- Submitted `Bitte als Tabelle. Der Text handelt von drei Personen.` The app correctly showed `Noch nicht ganz` and explained that content counts do not set output length.
+- Revised directly to `Bitte keine Tabelle, sondern drei kurze Stichpunkte.` The app enabled checking and showed `Das passt zur Aufgabe` with the appropriate independent-attempt caveat.
+- Opened the takeaway, quit normally, relaunched with `--demo`, and confirmed the learning path retained completion (1 of 6; format lesson marked `Geschafft`). Quit the QA copy normally afterward.
+- Screenshot: `Artifacts/overnight-2026-10-20/lesson-specific-feedback.png`. No view, layout, color, animation, or design source was changed.
 
 ### Live validation blocker and candidate state
 
 - The original installed app reproduced `OpenAI hat keine Textantwort geliefert.` on a generic appointment-email prompt. The stream fixes are regression-tested but have **not** yet been proven against the connected account.
 - A rebuilt first candidate (0.4.3/build 7) at `Artifacts/Sinnfaden.app` is waiting for macOS Keychain permission. Process sampling confirmed `SecItemCopyMatching` on the main thread. PID 69498 is that old candidate; it does not yet contain the subsequent asynchronous-read or sanitizer fixes. Rebuild before final validation/release.
-- The complete, signature-verified first batch is built separately at `Artifacts/overnight-2026-10-20/Candidate/Sinnfaden.app`. It has not yet been opened or tested against the real account. The first frozen candidate was not overwritten.
+- The complete, signature-verified two-batch candidate is built separately at `Artifacts/overnight-2026-10-20/Candidate/Sinnfaden.app`. Its UI was checked through the isolated demo copy, but it has not been tested against the real account. The first frozen candidate was not overwritten.
 - A user question asking them to approve Sinnfaden's macOS Keychain dialog is pending. Do not bypass permissions, extract tokens elsewhere, or treat silence as approval. The command-line live suite was stopped before inference; `Artifacts/live-coach-suite.json` is stale from October 18, not evidence for tonight.
 - The owner's draft was saved before the old app quit. A verified previous app copy is preserved at `Artifacts/overnight-2026-10-20/Previous/Sinnfaden.app`; do not overwrite it. Use an isolated copy for the build 6 → 7 update installation test.
-- Next: finish full tests and local diff review, update the graph, commit/push the batch, continue account/cancellation/learning audits. Retry live prompt quality checks only after the permission obstacle is resolved. Add `0.4.3+7` to the relay allowlist before publication; current live versions are `0.4.1+5,0.4.2+6`.
+- Next: continue account/cancellation/learning audits, preserving the two completed batches. Specific unverified audit leads: other lesson types may reward explicitly negated requirements; context may mistake `ab morgen` for a start location; a cancelled caller awaiting an existing shared refresh task must not begin inference; history should record the actual request model if the selected model changes mid-request. Reproduce before changing behavior.
+- Retry live prompt quality checks only after the permission obstacle is resolved. Add `0.4.3+7` to the relay allowlist before publication; current live versions are `0.4.1+5,0.4.2+6`. New version publication and a real build 6 → 7 installation test remain outstanding. No changes to the live relay or feed were made during this first overnight checkpoint.
 
 ## Claude handoff
 
