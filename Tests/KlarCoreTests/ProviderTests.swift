@@ -166,6 +166,18 @@ final class ProviderTests: XCTestCase {
             XCTAssertEqual(recorder.last, "Ä 👩🏽‍💻 é")
         }
     }
+    func testCancellationAtFinalTextDeliveryDoesNotReturnSuccess() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [FinalOnlySyntheticSSEProtocol.self]
+        let transport = OpenAITransport(session: URLSession(configuration: configuration))
+        let task = Task {
+            try await transport.generate(token: "synthetic-test-token", model: "synthetic-model", instructions: "test", input: "test", onProgress: { _ in
+                withUnsafeCurrentTask { $0?.cancel() }
+            })
+        }
+        do { _ = try await task.value; XCTFail("A cancelled final delivery must not report success.") }
+        catch { XCTAssertTrue(error is CancellationError) }
+    }
     private func event(_ json: String, into parser: inout ResponsesStreamParser) throws { try parser.consume(line: "data: " + json); try parser.consume(line: "") }
 }
 
@@ -191,6 +203,11 @@ private class SyntheticSSEProtocol: URLProtocol {
 private final class FailingSyntheticSSEProtocol: SyntheticSSEProtocol {
     override var textDeltas: [String] { ["Ä 👩🏽‍💻 e", "\u{0301}"] }
     override var terminalEvent: String { #"{"type":"response.failed","response":{"error":{"code":"subscription_sharing_usage_limit_exceeded"}}}"# }
+}
+
+private final class FinalOnlySyntheticSSEProtocol: SyntheticSSEProtocol {
+    override var textDeltas: [String] { [] }
+    override var terminalEvent: String { #"{"type":"response.completed","response":{"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"complete"}]}]}}"# }
 }
 
 private final class PartialTextRecorder: @unchecked Sendable {

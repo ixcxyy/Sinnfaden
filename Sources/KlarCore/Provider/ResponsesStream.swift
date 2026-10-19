@@ -122,6 +122,7 @@ extension OpenAITransport {
         return try JSONSerialization.data(withJSONObject: body)
     }
     func generate(token: String, model: String, instructions: String, input: String, textFormat: [String: Any]? = nil, onPartialText: (@Sendable (String) -> Void)? = nil, onProgress: @escaping @Sendable (Int) -> Void) async throws -> String {
+        try Task.checkCancellation()
         var request = URLRequest(url: URL(string: "https://api.openai.com/v1/responses")!)
         request.httpMethod = "POST"; request.timeoutInterval = 120
         request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
@@ -165,7 +166,10 @@ extension OpenAITransport {
                     previousByteCount = parser.text.utf8.count
                     onProgress(parser.text.count); onPartialText?(parser.text)
                 }
-                if parser.completed { return try parser.finish() }
+                if parser.completed {
+                    try Task.checkCancellation()
+                    return try parser.finish()
+                }
             } else {
                 line.append(byte)
                 guard line.count <= 512_000 else { throw ProviderFailure(.invalidResponse, "Ein Teil der Antwort ist zu groß.") }

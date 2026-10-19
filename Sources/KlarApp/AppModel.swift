@@ -146,6 +146,8 @@ final class AppModel: ObservableObject {
         currentEntry = HistoryEntry(id: id, original: input, outcome: "generating")
         saveCurrent()
         let original = input
+        let requestAccount = connection.accountID
+        let requestModel = connection.selectedModel
         let stage = LearningProgress.stage(for: history.flatMap(\.practiceAttempts))
         let learningInstruction: String
         switch stage {
@@ -156,12 +158,12 @@ final class AppModel: ObservableObject {
         task = Task { [weak self] in
             guard let self else { return }
             do {
-                let result = try await CoachPipeline.run(original: original, generate: { [weak self] instructions, prompt in
-                    guard let self else { throw CancellationError() }
-                    return try await self.connection.generate(instructions: instructions + "\nLernangebot: " + learningInstruction, input: prompt) { _ in }
+                let result = try await CoachPipeline.run(original: original, generate: { @MainActor [weak self] instructions, prompt in
+                    guard let self, self.activeAttempt == id, self.connection.accountID == requestAccount else { throw CancellationError() }
+                    return try await self.connection.generate(instructions: instructions + "\nLernangebot: " + learningInstruction, input: prompt, model: requestModel) { _ in }
                 }, onStage: { [weak self] stage in
                     Task { @MainActor in
-                        guard let self, self.activeAttempt == id else { return }
+                        guard let self, self.activeAttempt == id, self.connection.accountID == requestAccount else { return }
                         switch stage {
                         case .requesting:
                             self.phase = .generating
@@ -178,7 +180,7 @@ final class AppModel: ObservableObject {
                     }
                 })
                 try Task.checkCancellation()
-                guard self.activeAttempt == id else { return }
+                guard self.activeAttempt == id, self.connection.accountID == requestAccount else { return }
                 self.response = result; self.editedPrompt = result.prompt
                 self.solutionRevealed = result.exercise == nil || result.status == .already_good
                 self.showExercise = result.exercise != nil
@@ -188,7 +190,7 @@ final class AppModel: ObservableObject {
                 self.saveCurrent()
                 self.activeAttempt = nil
             } catch {
-                guard self.activeAttempt == id else { return }
+                guard self.activeAttempt == id, self.connection.accountID == requestAccount else { return }
                 self.diagnostics.record(error, area: .coach)
                 self.activeAttempt = nil
                 if error is CancellationError || (error as? ProviderFailure)?.kind == .interrupted || (error as? ProviderFailure)?.kind == .cancelled {

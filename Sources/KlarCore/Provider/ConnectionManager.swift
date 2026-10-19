@@ -191,14 +191,17 @@ public final class ConnectionManager: ObservableObject {
     }
 
     public func generate(instructions: String, input: String, model requestedModel: String? = nil, onPartialText: (@Sendable (String) -> Void)? = nil, onProgress: @escaping @Sendable (Int) -> Void) async throws -> String {
+        try Task.checkCancellation()
         let model = requestedModel ?? selectedModel
         guard status == .connected, let id = accountID else { throw ProviderFailure(.authentication, "Bitte verbinde zuerst einen freigegebenen Zugang in den Einstellungen.") }
         guard models.contains(model) else { throw ProviderFailure(.permission, "Das gewählte Modell ist für dieses Konto nicht mehr verfügbar.", code: "model_not_in_catalog") }
         let attempt = revision
         do {
             let token = try await bearer()
+            try Task.checkCancellation()
             guard revision == attempt, accountID == id else { throw CancellationError() }
             let text = try await transport.generate(token: token, model: model, instructions: instructions, input: input, onPartialText: onPartialText, onProgress: onProgress)
+            try Task.checkCancellation()
             guard revision == attempt, accountID == id else { throw CancellationError() }
             return text
         } catch {
@@ -213,14 +216,17 @@ public final class ConnectionManager: ObservableObject {
 
     /// One explicit, tiny capability probe; never automatically applied to tutor requests.
     public func probeStructuredOutput() async throws -> Bool {
+        try Task.checkCancellation()
         guard canGenerate, providerKind == .chatGPT else { throw ProviderFailure(.authentication, "Ein freigegebener ChatGPT-Zugang ist erforderlich.") }
         let attempt = revision
         let model = selectedModel
         let token = try await bearer()
+        try Task.checkCancellation()
         guard revision == attempt else { throw CancellationError() }
         let format: [String: Any] = ["type": "json_schema", "name": "klar_connection_probe", "strict": true,
             "schema": ["type": "object", "properties": ["ok": ["type": "string", "enum": ["KLAR"]]], "required": ["ok"], "additionalProperties": false]]
         let output = try await transport.generate(token: token, model: model, instructions: "Liefere das vereinbarte JSON-Objekt mit ok gleich KLAR.", input: "Dies ist ein kleiner Structured-Outputs-Verbindungstest.", textFormat: format, onProgress: { _ in })
+        try Task.checkCancellation()
         guard revision == attempt else { throw CancellationError() }
         let parsed = try JSONSerialization.jsonObject(with: Data(output.utf8)) as? [String: String]
         return parsed == ["ok": "KLAR"]
@@ -231,7 +237,7 @@ public final class ConnectionManager: ObservableObject {
         if account.provider == .apiKey {
             guard let key = try await secure.load(String.self, account: id) else { throw ProviderFailure(.authentication, "Der API-Schlüssel fehlt.") }; return key
         }
-        if let refreshTask = refreshTasks[id] { return try await refreshTask.value }
+        if let refreshTask = refreshTasks[id] { return try await Self.completedCredentialValue(from: refreshTask) }
         let transport = self.transport, secure = self.secure
         let task = Task<String, Error> {
             let lock = SessionFileLock(); try await lock.acquire(); defer { lock.release() }
@@ -259,6 +265,11 @@ public final class ConnectionManager: ObservableObject {
         defer { refreshTasks[id] = nil }
         // Finish rotating-token persistence even when the caller cancels its generation.
         // The caller checks its own revision before inference; logout waits for the lock.
+        return try await Self.completedCredentialValue(from: task)
+    }
+
+    static func completedCredentialValue(from task: Task<String, Error>) async throws -> String {
+        // Refresh rotation still finishes and is persisted even when one waiting caller cancels.
         let value = try await task.value
         try Task.checkCancellation()
         return value
