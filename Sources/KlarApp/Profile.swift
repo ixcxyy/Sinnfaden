@@ -15,7 +15,7 @@ final class ProfileStore: ObservableObject {
         name = stored["name"] as? String ?? ""
         avatar = stored["avatar"] as? Int ?? 0
         let arguments = CommandLine.arguments
-        let scripted = arguments.contains("--ui-tour") || arguments.contains("--click-probe") || arguments.contains("--compose-probe") || arguments.contains("--show-page")
+        let scripted = arguments.contains("--ui-tour") || arguments.contains("--click-probe") || arguments.contains("--compose-probe") || arguments.contains("--meal-probe") || arguments.contains("--place-window") || arguments.contains("--show-page")
         onboarded = (stored["onboarded"] as? Bool ?? false || scripted) && !arguments.contains("--intro")
         introPlayed = scripted && !arguments.contains("--intro") && !arguments.contains("--welcome")
     }

@@ -9,28 +9,26 @@ struct AnnotatedPromptView: View {
     var fontSize: CGFloat = 17
     var onHelpUsed: () -> Void = {}
     var onCompare: ((PromptChange) -> Void)? = nil
+    /// A click on an orange placeholder: focus its field (never pins an explanation).
+    var onPlaceholder: ((String) -> Void)? = nil
     @StateObject private var presentation = AnnotationPresentation()
     @State private var textHeight: CGFloat = 0
     @State private var showAll = false
     @FocusState private var focusedChangeID: String?
-    @State private var skipFocusRevealID: String?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var visibleChanges: [PromptChange] {
         showAll ? response.changes : Array(response.changes.prefix(3))
     }
 
+    /// The list below the text is the keyboard and VoiceOver route: it opens the explanation
+    /// inline. Nothing here pins the hover membrane.
     private func openExplanation(_ change: PromptChange) {
         onHelpUsed()
-        if presentation.shouldUseInline || change.targetSegmentIDs.isEmpty {
-            presentation.close()
-            presentation.inlineWasExplicit = true
-            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) {
-                presentation.inlineChangeID = presentation.inlineChangeID == change.id ? nil : change.id
-            }
-        } else {
-            presentation.inlineChangeID = nil
-            presentation.open(change, pin: true)
+        presentation.close()
+        presentation.inlineWasExplicit = true
+        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) {
+            presentation.inlineChangeID = presentation.inlineChangeID == change.id ? nil : change.id
         }
     }
 
@@ -44,7 +42,7 @@ struct AnnotatedPromptView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             NativeAnnotatedText(response: response, changes: visibleChanges,
-                                fontSize: fontSize, presentation: presentation,
+                                fontSize: fontSize, presentation: presentation, onPlaceholder: onPlaceholder,
                                 onHeight: { measured in if abs(measured - textHeight) > 0.5 { textHeight = measured } })
                 // The text reports its laid-out height; SwiftUI's own sizing pass cached stale
                 // values and stacked the controls below on top of the words.
@@ -80,10 +78,10 @@ struct AnnotatedPromptView: View {
                         .accessibilityLabel("Änderung erklären: \(change.title)")
                         .help("Erklärung an der Textstelle öffnen. Leertaste öffnet, Pfeiltasten wechseln zwischen Änderungen.")
                         if presentation.inlineChangeID == change.id {
-                            AnnotationExplanation(change: change, pinned: true, close: {
+                            AnnotationExplanation(change: change, close: {
                                 presentation.inlineChangeID = nil
                                 focusedChangeID = change.id
-                            }, pin: {}, compare: onCompare.map { callback in { callback(change) } }, focusOnOpen: presentation.inlineWasExplicit)
+                            }, compare: onCompare.map { callback in { callback(change) } }, focusOnOpen: presentation.inlineWasExplicit)
                             .padding(18)
                             .background {
                                 RoundedRectangle(cornerRadius: 20)
@@ -117,28 +115,21 @@ struct AnnotatedPromptView: View {
             let prepared = visibleChanges
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { presentation.prepare(prepared) }
             presentation.onHelpUsed = onHelpUsed
-            presentation.onCompare = onCompare
-            presentation.didClosePinned = { id in
-                skipFocusRevealID = id
-                focusedChangeID = id
-            }
         }
         .onDisappear { presentation.tearDown() }
         .onChange(of: focusedChangeID) { _, id in
-            defer { skipFocusRevealID = nil }
-            guard let id, id != skipFocusRevealID,
-                  let change = visibleChanges.first(where: { $0.id == id }) else { return }
+            guard let id, let change = visibleChanges.first(where: { $0.id == id }) else { return }
             if presentation.shouldUseInline || change.targetSegmentIDs.isEmpty {
                 presentation.inlineWasExplicit = false
                 presentation.inlineChangeID = id
                 onHelpUsed()
             } else {
-                presentation.open(change, pin: false)
+                // Keyboard focus: the focused words are the origin of the same lens.
+                presentation.open(change)
             }
         }
         .onChange(of: response) { _, _ in
             presentation.onHelpUsed = onHelpUsed
-            presentation.onCompare = onCompare
             presentation.close()
             presentation.inlineChangeID = nil
             showAll = false
@@ -151,6 +142,7 @@ private struct NativeAnnotatedText: NSViewRepresentable {
     let changes: [PromptChange]
     let fontSize: CGFloat
     let presentation: AnnotationPresentation
+    var onPlaceholder: ((String) -> Void)?
     let onHeight: (CGFloat) -> Void
 
     func makeNSView(context: Context) -> AnnotationTextView {
@@ -177,6 +169,7 @@ private struct NativeAnnotatedText: NSViewRepresentable {
 
     func updateNSView(_ nsView: AnnotationTextView, context: Context) {
         nsView.onHeightChange = onHeight
+        nsView.onPlaceholder = onPlaceholder
         nsView.configure(response: response, changes: changes, fontSize: fontSize)
         nsView.reportHeight()
     }
@@ -251,8 +244,10 @@ final class AnnotationTextView: NSTextView, NSTextViewDelegate {
             }
         }
         // Open placeholders read as small fill-in slots, so the gaps are visible at a glance.
-        if let slots = try? NSRegularExpression(pattern: "\\[[^\\[\\]\\n]{1,60}\\]") {
-            for match in slots.matches(in: response.prompt, range: NSRange(location: 0, length: attributed.length)) {
+        let placeholders = Set(response.inputs.map(\.placeholder))
+        if let slots = try? NSRegularExpression(pattern: "\\[[^\\[\\]\\r\\n]+\\]") {
+            for match in slots.matches(in: response.prompt, range: NSRange(location: 0, length: attributed.length))
+            where placeholders.contains((response.prompt as NSString).substring(with: match.range)) {
                 attributed.addAttributes([
                     .foregroundColor: NSColor(red: 0.72, green: 0.38, blue: 0.0, alpha: 1),
                     .backgroundColor: NSColor(red: 1.0, green: 0.93, blue: 0.80, alpha: 1),
@@ -290,25 +285,43 @@ final class AnnotationTextView: NSTextView, NSTextViewDelegate {
     }
 
     private var pendingSingleClick: DispatchWorkItem?
-    func cancelPendingClick() { pendingSingleClick?.cancel(); pendingSingleClick = nil }
     override func mouseDown(with event: NSEvent) {
         pendingSingleClick?.cancel()
         let start = NSEvent.mouseLocation
-        let change = annotation(at: convert(event.locationInWindow, from: nil))
-        // NSTextView owns its entire native selection/drag loop. There is no link interception.
-        if event.clickCount > 1 { presentation?.close() }
+        let token = placeholder(at: convert(event.locationInWindow, from: nil))
+        // NSTextView owns its entire native selection/drag loop. The hover lens has already
+        // stepped aside (any click closes it); only an orange placeholder reacts, by leading
+        // to its field.
         super.mouseDown(with: event)
         let end = NSEvent.mouseLocation
         let distance = hypot(end.x - start.x, end.y - start.y)
-        guard let change, event.clickCount == 1, distance < 4,
+        guard let token, event.clickCount == 1, distance < 4,
               selectedRange().length == 0, !event.modifierFlags.contains(.shift) else { return }
         let work = DispatchWorkItem { [weak self] in
             guard let self, self.window != nil, self.selectedRange().length == 0 else { return }
-            self.presentation?.open(change, pin: true)
+            self.onPlaceholder?(token)
         }
         pendingSingleClick = work
         // Waiting for the system interval protects a subsequent double-click word selection.
         DispatchQueue.main.asyncAfter(deadline: .now() + NSEvent.doubleClickInterval, execute: work)
+    }
+
+    var onPlaceholder: ((String) -> Void)?
+
+    private func placeholder(at point: NSPoint) -> String? {
+        guard let layoutManager, let textContainer, let storage = textStorage, storage.length > 0 else { return nil }
+        let textPoint = NSPoint(x: point.x - textContainerOrigin.x, y: point.y - textContainerOrigin.y)
+        var fraction: CGFloat = 0
+        let glyph = layoutManager.glyphIndex(for: textPoint, in: textContainer, fractionOfDistanceThroughGlyph: &fraction)
+        guard layoutManager.boundingRect(forGlyphRange: NSRange(location: glyph, length: 1), in: textContainer).insetBy(dx: -2, dy: -2).contains(textPoint) else { return nil }
+        let index = layoutManager.characterIndexForGlyph(at: glyph)
+        let text = storage.string as NSString
+        guard let pattern = try? NSRegularExpression(pattern: "\\[[^\\[\\]\\r\\n]+\\]") else { return nil }
+        for match in pattern.matches(in: storage.string, range: NSRange(location: 0, length: text.length)) where NSLocationInRange(index, match.range) {
+            let token = text.substring(with: match.range)
+            return configuredResponse?.inputs.contains(where: { $0.placeholder == token }) == true ? token : nil
+        }
+        return nil
     }
 
     func change(atScreen point: CGPoint) -> PromptChange? {
@@ -471,54 +484,88 @@ final class AnnotationTextView: NSTextView, NSTextViewDelegate {
 
 @MainActor
 final class AnnotationBubbleState: ObservableObject {
-    @Published var pinned = false
     @Published var fontSize: CGFloat = 16
 }
 
+/// The hover lens content: heading, a calm band in which the cursor rests, explanation.
+/// Read-only; the lens never takes clicks (actions live in the inline explanation).
 struct AnnotationBubbleContent: View {
     @ObservedObject var state: AnnotationBubbleState
     let change: PromptChange
     let width: CGFloat
-    let close: () -> Void
-    let pin: () -> Void
-    let compare: (() -> Void)?
+    var topBalance: CGFloat = 0
+    var bottomBalance: CGFloat = 0
 
     var body: some View {
-        AnnotationExplanation(change: change, pinned: state.pinned, close: close, pin: pin, compare: compare, onBlue: true)
-            .font(.system(size: state.fontSize))
-            .padding(22)
-            .frame(width: width, alignment: .leading)
-            .fixedSize(horizontal: false, vertical: true)
-            .onExitCommand(perform: close)
+        VStack(alignment: .leading, spacing: 0) {
+            AnnotationBubbleHeader(change: change)
+                .padding(.top, topBalance)
+            Color.clear.frame(height: AnnotationTuning.cursorRest)
+            VStack(alignment: .leading, spacing: 10) {
+                Text(change.explanation)
+                    .font(.system(size: state.fontSize))
+                    .foregroundStyle(Color.sinnInk)
+                    .lineSpacing(4)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let original = change.originalText, !original.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(change.targetSegmentIDs.isEmpty ? "Entfernte Passage" : "Vorher")
+                            .font(.system(size: 11, weight: .medium)).foregroundStyle(Color.sinnAnnotation)
+                        Text(original).font(.system(size: 13)).foregroundStyle(Color.sinnMuted).lineLimit(4)
+                    }
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.sinnAnnotationWash, in: RoundedRectangle(cornerRadius: 10))
+                }
+            }
+            .padding(.bottom, bottomBalance)
+        }
+        .padding(AnnotationTuning.bubblePadding)
+        .frame(width: width, alignment: .leading)
+        .fixedSize(horizontal: false, vertical: true)
+        .accessibilityElement(children: .combine)
+    }
+
+    /// Height of the heading at this width: places the cursor's resting band.
+    @MainActor static func headerHeight(change: PromptChange, width: CGFloat) -> CGFloat {
+        let inner = width - 2 * AnnotationTuning.bubblePadding
+        return NSHostingView(rootView: AnnotationBubbleHeader(change: change).frame(width: inner, alignment: .leading)
+            .fixedSize(horizontal: false, vertical: true)).fittingSize.height
     }
 }
 
+private struct AnnotationBubbleHeader: View {
+    let change: PromptChange
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("WARUM DIESE ÄNDERUNG?")
+                .font(.system(size: 10, weight: .bold)).tracking(1.2)
+                .foregroundStyle(Color.sinnAnnotation.opacity(0.75))
+            Text(change.title)
+                .font(.system(size: 19, weight: .semibold))
+                .foregroundStyle(Color.sinnAnnotation)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+/// The inline explanation below the text: the keyboard and VoiceOver route, with actions.
 private struct AnnotationExplanation: View {
     let change: PromptChange
-    let pinned: Bool
     let close: () -> Void
-    let pin: () -> Void
     var compare: (() -> Void)? = nil
     var focusOnOpen = true
-    /// Inside the milky explanation surface (not inline); actions only once it is pinned.
-    var onBlue = false
-    /// Learning blue for the heading and controls: it ties the explanation to its blue words.
     private var ink: Color { .sinnAnnotation }
-    /// Reading text stays in the interface ink for calm, high-contrast reading.
-    private var bodyInk: Color { onBlue ? .sinnInk : .sinnAnnotation }
-    /// The following bubble is read-only; buttons appear once it is pinned.
-    private var showsActions: Bool { !onBlue || pinned }
     @FocusState private var closeFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top) {
-                Text(onBlue ? "WARUM DIESE ÄNDERUNG?" : "Warum diese Änderung?")
-                    .font(.system(size: onBlue ? 10 : 11, weight: onBlue ? .bold : .semibold))
-                    .tracking(onBlue ? 1.2 : 0)
-                    .foregroundStyle(ink.opacity(onBlue ? 0.75 : 1))
+                Text("Warum diese Änderung?")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(ink)
                 Spacer(minLength: 4)
-                if showsActions { Button(action: close) {
+                Button(action: close) {
                     Image(systemName: "xmark").font(.system(size: 11, weight: .semibold))
                         .frame(width: 22, height: 22)
                         .contentShape(Circle())
@@ -529,14 +576,14 @@ private struct AnnotationExplanation: View {
                 .onKeyPress(.space, phases: .down) { _ in close(); return .handled }
                 .onKeyPress(.return, phases: .down) { _ in close(); return .handled }
                 .accessibilityLabel("Erklärung schließen")
-                .help("Schließen · Escape") }
+                .help("Schließen · Escape")
             }
             Text(change.title)
                 .font(.system(size: 19, weight: .semibold))
                 .foregroundStyle(ink)
                 .fixedSize(horizontal: false, vertical: true)
             Text(change.explanation)
-                .foregroundStyle(bodyInk)
+                .foregroundStyle(ink)
                 .lineSpacing(4)
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
@@ -546,15 +593,15 @@ private struct AnnotationExplanation: View {
                         .font(.system(size: 11, weight: .medium)).foregroundStyle(ink)
                     Text(original)
                         .font(.system(size: 13))
-                        .foregroundStyle(onBlue ? Color.sinnMuted : ink)
+                        .foregroundStyle(ink)
                         .lineLimit(4)
                         .textSelection(.enabled)
                 }
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(onBlue ? Color.sinnAnnotationWash : Color.white.opacity(0.62), in: RoundedRectangle(cornerRadius: 10))
+                .background(Color.white.opacity(0.62), in: RoundedRectangle(cornerRadius: 10))
             }
-            if showsActions, let ruleID = change.ruleID, let rule = RuleRegistry.lookup(ruleID) {
+            if let ruleID = change.ruleID, let rule = RuleRegistry.lookup(ruleID) {
                 Link("Mehr erfahren", destination: rule.sourceURL)
                     .font(.system(size: 12, weight: .medium))
                     .focusable(true)
@@ -562,7 +609,7 @@ private struct AnnotationExplanation: View {
                     .onKeyPress(.return, phases: .down) { _ in NSWorkspace.shared.open(rule.sourceURL); return .handled }
                     .help("\(rule.summary)\n\(rule.evidenceType) · geprüft am \(rule.checkedAt)")
             }
-            if showsActions, let compare {
+            if let compare {
                 Button(action: compare) {
                     Label("Im Ergebnis ansehen", systemImage: "rectangle.split.2x1")
                         .font(.system(size: 12, weight: .medium))
@@ -572,27 +619,12 @@ private struct AnnotationExplanation: View {
                 .focusable(true)
                 .onKeyPress(.space, phases: .down) { _ in compare(); return .handled }
             }
-            if !pinned && onBlue {
-                Label("Klicken zum Festhalten", systemImage: "cursorarrow.click")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Color.sinnMuted)
-            } else if !pinned {
-                Button(action: pin) {
-                    Label("Erklärung festhalten", systemImage: "pin")
-                        .font(.system(size: 12, weight: .medium))
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(ink)
-            }
         }
         .foregroundStyle(ink)
         .tint(ink)
         .onExitCommand(perform: close)
         .onAppear {
-            if pinned && focusOnOpen { DispatchQueue.main.async { closeFocused = true } }
-        }
-        .onChange(of: pinned) { _, value in
-            if value && focusOnOpen { closeFocused = true }
+            if focusOnOpen { DispatchQueue.main.async { closeFocused = true } }
         }
     }
 }

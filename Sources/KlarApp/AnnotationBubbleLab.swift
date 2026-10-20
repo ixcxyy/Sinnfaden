@@ -128,13 +128,6 @@ final class AnnotationLabAutopilot {
         { base().map { CGPoint(x: $0.x + dx, y: $0.y + dy) } }
     }
 
-    private func bubbleCenter() -> () -> CGPoint? {
-        { [weak self] in
-            guard let frame = self?.presentation?.bodyScreenFrame, frame.width > 40 else { return nil }
-            return CGPoint(x: frame.midX + 20, y: frame.midY)
-        }
-    }
-
     func start(after delay: Double) {
         let outside = offset(point("goal", x: 0.2), dx: -30, dy: 70)
         steps = [
@@ -151,9 +144,9 @@ final class AnnotationLabAutopilot {
             (1.3, point("unknowns", x: 0.6), nil),
             (0.45, point("name", x: 0.5), nil),                       // 6 very short explanation
             (1.2, point("name", x: 0.55), nil),
-            (0.7, bubbleCenter(), nil),                               // 7 into the lens, pin, Escape
-            (0.8, bubbleCenter(), { [weak self] in self?.presentation?.pinCurrent() }),
-            (1.0, bubbleCenter(), { [weak self] in self?.presentation?.close() }),
+            (0.7, point("goal", x: 0.5), nil),                        // 7 rest on the words, read, Escape
+            (1.4, point("goal", x: 0.5), nil),
+            (0.6, point("goal", x: 0.5), { [weak self] in self?.presentation?.close() }),
             (0.6, point("goal", x: 0.6), nil),                        // 8 reopen, leave, re-enter mid-retract
             (1.0, point("goal", x: 0.6), nil),
             (0.12, offset(point("goal", x: 0.6), dx: 0, dy: 90), nil),

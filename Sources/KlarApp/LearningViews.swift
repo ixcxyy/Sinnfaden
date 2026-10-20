@@ -24,8 +24,10 @@ struct HandoffButton: View {
     var beforeOpen: () -> Void = {}
     /// Fills the available width (the main action of a sheet).
     var expanded = false
+    /// Last check before handing off (e.g. open placeholders lead to their field instead).
+    var shouldOpen: () -> Bool = { true }
     var body: some View {
-        Button { beforeOpen(); service.open(prompt: prompt) } label: {
+        Button { guard shouldOpen() else { return }; beforeOpen(); service.open(prompt: prompt) } label: {
             HStack(spacing: 10) { ChatGPTMark(size: 20).environment(\.colorScheme, colorScheme == .dark ? .light : .dark); Text(service.actionTitle(for: prompt)).font(.system(size: 14, weight: .semibold)).lineLimit(1); Image(systemName:"arrow.up.right").font(.system(size:11,weight:.bold)) }
                 .fixedSize(horizontal: !expanded, vertical: false)
                 .frame(maxWidth: expanded ? .infinity : nil)

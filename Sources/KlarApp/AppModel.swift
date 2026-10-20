@@ -17,7 +17,15 @@ final class AppModel: ObservableObject {
     @Published var dockOpen = false
     @Published var response: CoachResponse? {
         didSet {
+            // Every orange placeholder gets a field, also in answers stored before this rule.
+            if let current = response {
+                let covered = current.coveringPlaceholders()
+                if covered != current { response = covered; return }
+            }
             guard oldValue != response else { return }
+            focusedInputID = nil
+            copyNeedsInputs = false
+            copiedWithOpenPlaceholders = false
             // Smart default: fields start with values that follow from the user's own words.
             restoreInputValues()
         }
@@ -30,6 +38,8 @@ final class AppModel: ObservableObject {
                 inputSelections = inputSelections.filter { oldValue[$0.key] == inputValues[$0.key] }
             }
             copied = false
+            copiedWithOpenPlaceholders = false
+            if copyNeedsInputs && openPlaceholders.isEmpty { copyNeedsInputs = false }
             let previousPrompt = displayedResponse?.prompt
             refreshDisplayedResponse()
             // Keep an untouched editor in sync with the visible form. Comparing its
@@ -46,6 +56,33 @@ final class AppModel: ObservableObject {
     @Published private(set) var inputExpansionError: String?
     var promptUseError: String? { manuallyEdited ? nil : inputExpansionError }
     var canUsePrompt: Bool { promptUseError == nil && !visiblePrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    /// Orange placeholders without a value yet. Shown, focusable, and guarded before copying.
+    var openPlaceholders: [String] {
+        guard !manuallyEdited, let response else { return [] }
+        return response.unfilledPlaceholders(with: inputValues)
+    }
+    /// The field the page should focus next (set by a click on an orange placeholder).
+    @Published var focusedInputID: String?
+    /// A copy or hand-off was stopped because placeholders are still open.
+    @Published var copyNeedsInputs = false
+    /// The last copy deliberately kept open placeholders.
+    @Published var copiedWithOpenPlaceholders = false
+
+    func focusInput(placeholder: String) {
+        guard let input = response?.inputs.first(where: { $0.placeholder == placeholder }) else { return }
+        let expected = response
+        focusedInputID = nil
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.response == expected else { return }
+            self.focusedInputID = input.id
+        }
+    }
+
+    func focusFirstOpenInput() {
+        guard let first = openPlaceholders.first else { return }
+        focusInput(placeholder: first)
+    }
+
     var openRequiredInputs: [PromptInput] {
         (response?.inputs ?? []).filter { $0.required && (inputValues[$0.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     }
@@ -105,7 +142,7 @@ final class AppModel: ObservableObject {
         }.store(in: &subscriptions)
         if isDemo {
             // The demo starts like a real session: your words are ready, nothing is sent.
-            draft = DemoContent.original
+            draft = CommandLine.arguments.contains("--demo-meal") ? DemoContent.mealOriginal : DemoContent.original
             phase = .ready
         }
     }
@@ -341,7 +378,8 @@ final class AppModel: ObservableObject {
         showExercise = false
         exerciseHelp = result.status == .improved && result.exercise != nil
         phase = result.status == .needs_clarification ? .clarifying : .showingResult
-        currentEntry?.response = result
+        // Store what is shown (with a field for every placeholder), so typed values are saved.
+        currentEntry?.response = response
         currentEntry?.outcome = result.status.rawValue
         saveCurrent()
     }
@@ -373,7 +411,7 @@ final class AppModel: ObservableObject {
                 ? CoachResponse(status: .already_good, coachMessage: "Dein Prompt ist schon klar. Du kannst ihn so verwenden.",
                                 segments: [PromptSegment(id: "s1", text: self.submittedOriginal)],
                                 exercise: CoachExercise(id: "ex1", question: "Wie würdest du eine ähnliche Anfrage für eine freundliche Absage formulieren?", category: "Transfer"))
-                : DemoContent.response
+                : CommandLine.arguments.contains("--demo-meal") ? DemoContent.mealResponse : DemoContent.response
             self.presentCoachResult(result)
             self.activeAttempt = nil
         }
@@ -401,11 +439,28 @@ final class AppModel: ObservableObject {
         learning.createRecipe(from: visiblePrompt); page = .recipes
     }
 
-    func copyPrompt() {
+    /// Copies the usable prompt. With open placeholders it first leads to the missing field;
+    /// `allowOpen` is the explicit, clearly labelled copy that keeps them.
+    func copyPrompt(allowOpen: Bool = false) {
         guard canUsePrompt else { return }
+        if !allowOpen && !openPlaceholders.isEmpty {
+            copyNeedsInputs = true
+            focusFirstOpenInput()
+            return
+        }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(visiblePrompt, forType: .string)
+        copiedWithOpenPlaceholders = !openPlaceholders.isEmpty
+        copyNeedsInputs = false
         copied = true
+    }
+
+    /// Hand-off to ChatGPT follows the same rule as copying.
+    func mayHandOff() -> Bool {
+        guard !openPlaceholders.isEmpty else { copyNeedsInputs = false; return true }
+        copyNeedsInputs = true
+        focusFirstOpenInput()
+        return false
     }
 
     func beginEditing() { editedPrompt = visiblePrompt; editing = true; copied = false }
@@ -457,6 +512,8 @@ final class AppModel: ObservableObject {
         let entry = pendingEntries[observedAccount]?[entry.id] ?? entry
         currentEntry = entry; draft = entry.original; submittedOriginal = entry.original
         response = entry.response
+        // Older answers gain fields for bare placeholders; the entry follows, so values save.
+        currentEntry?.response = response
         // Equal responses can belong to different history entries with different answers.
         restoreInputValues(entry.inputValues, selections: entry.inputSelections)
         editedPrompt = entry.editedPrompt ?? displayedResponse?.prompt ?? ""

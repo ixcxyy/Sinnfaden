@@ -73,12 +73,16 @@ enum AppTour {
         }
         let sendAt = 6.0 + Double(sentence.count) * 0.035 + 1.5
         DispatchQueue.main.asyncAfter(deadline: .now() + sendAt) {
-            print("COMPOSE send")
-            guard let window = mainWindow, let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command, timestamp: ProcessInfo.processInfo.systemUptime,
-                                                                      windowNumber: window.windowNumber, context: nil, characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36) else { return }
-            NSApp.sendEvent(event)
+            sendCommandReturn()
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + sendAt + 8) { NSApp.terminate(nil) }
+    }
+
+    private static func sendCommandReturn() {
+        print("COMPOSE send")
+        guard let window = mainWindow, let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command, timestamp: ProcessInfo.processInfo.systemUptime,
+                                                                  windowNumber: window.windowNumber, context: nil, characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36) else { return }
+        NSApp.sendEvent(event)
     }
 
     /// `--show-page recipes|recipe|followUp|laboratory|comparison|history` opens one page
@@ -101,7 +105,82 @@ enum AppTour {
         DispatchQueue.main.asyncAfter(deadline: .now() + 25) { NSApp.terminate(nil) }
     }
 
+    /// `--demo --demo-meal --meal-probe`: the reported placeholder case, driven in-process
+    /// (no system pointer): send, try to copy, click the orange token, type a multi-line
+    /// value, switch views, reopen from history. Logs each state with a `MEAL` prefix.
+    static func startMealProbe(_ model: AppModel) {
+        guard model.isDemo, CommandLine.arguments.contains("--meal-probe") else { return }
+        setvbuf(stdout, nil, _IOLBF, 0)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { placeWindow() }
+        let token = "[Ingredients and quantities]"
+        let value = "Linsen 500 g\nReis 1 kg\nPaprika 3 Stück\nZwiebeln, Knoblauch, Olivenöl"
+        func log(_ step: String) {
+            let field = model.response?.inputs.first { $0.placeholder == token }
+            print("MEAL \(step): field=\(field.map { "\($0.id)/\($0.kind.rawValue)" } ?? "none") open=\(model.openPlaceholders) "
+                  + "needs=\(model.copyNeedsInputs) focus=\(model.focusedInputID ?? "-") responder=\(mainWindow?.firstResponder.map { String(describing: type(of: $0)) } ?? "-") "
+                  + "filled=\(model.visiblePrompt.contains(value)) limits=\(["höchstens 25 Euro", "keine Pilze", "kein Backofen", "höchstens 20 Minuten", "zwei Personen", "drei Abende"].allSatisfy(model.visiblePrompt.contains))")
+        }
+        let steps: [(Double, String, () -> Void)] = [
+            (2.5, "send", { model.improve() }),
+            (5.5, "result", {}),
+            (1.0, "click-token", { clickToken(token) }),
+            (2.5, "copy-open", { model.copyPrompt() }),
+            (1.5, "type", {
+                guard let editor = mainWindow?.firstResponder as? NSTextView else { return }
+                editor.insertText(value, replacementRange: NSRange(location: NSNotFound, length: 0))
+            }),
+            (2.0, "lens-grid", { model.insightMode = "grid" }),
+            (1.0, "lens-steps", { model.insightMode = "steps" }),
+            (1.0, "lens-map", { model.insightMode = "map" }),
+            (1.0, "history", {
+                let id = model.history.first?.id
+                model.newPrompt()
+                if let entry = model.history.first(where: { $0.id == id }) { model.select(entry) }
+            }),
+            (2.5, "done", {})
+        ]
+        var at = 0.0
+        for (delay, name, action) in steps {
+            at += delay
+            DispatchQueue.main.asyncAfter(deadline: .now() + at) {
+                action()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { log(name) }
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + at + 4) { NSApp.terminate(nil) }
+    }
+
+    /// Clicks the middle of a bracketed token in the improved prompt with a window event.
+    private static func clickToken(_ token: String) {
+        guard let window = mainWindow, let text = textViews().first, let manager = text.layoutManager, let container = text.textContainer else { return }
+        let range = (text.string as NSString).range(of: token)
+        guard range.location != NSNotFound else { print("MEAL token not found"); return }
+        let glyphs = manager.glyphRange(forCharacterRange: NSRange(location: range.location + 1, length: 3), actualCharacterRange: nil)
+        var rect = manager.boundingRect(forGlyphRange: glyphs, in: container)
+        rect.origin.x += text.textContainerOrigin.x; rect.origin.y += text.textContainerOrigin.y
+        let location = text.convert(CGPoint(x: rect.midX, y: rect.midY), to: nil)
+        func event(_ type: NSEvent.EventType) -> NSEvent? {
+            NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                               windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
+        }
+        // NSTextView tracks the press in its own loop, so the release must already be queued.
+        guard let down = event(.leftMouseDown), let up = event(.leftMouseUp) else { return }
+        NSApp.postEvent(up, atStart: false)
+        window.sendEvent(down)
+    }
+
+    /// `--demo --place-window`: only puts the window at the recording position (40,63 · 1280×820)
+    /// and quits after two minutes, so real pointer and keyboard input can be recorded.
+    static func startPlacement(_ model: AppModel) {
+        guard model.isDemo, CommandLine.arguments.contains("--place-window") else { return }
+        setvbuf(stdout, nil, _IOLBF, 0)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { placeWindow() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 120) { NSApp.terminate(nil) }
+    }
+
     static func start(_ model: AppModel) {
+        startPlacement(model)
+        startMealProbe(model)
         startClickProbe(model)
         startComposeProbe()
         startShowPage(model)

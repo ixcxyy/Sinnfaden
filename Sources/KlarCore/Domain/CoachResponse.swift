@@ -142,6 +142,15 @@ public struct CoachResponse: Codable, Equatable, Sendable {
                 copy.segments[index].text = (copy.segments[index].text as NSString).replacingCharacters(in: local, with: replacement)
             }
         }
+        // A field-specific missing-information hint is resolved only when every token it
+        // names has actually been filled. Keep unrelated and partially resolved hints.
+        let filledTokens = Set(matches.map { source.substring(with: $0.range) })
+        copy.unknowns = unknowns.filter { note in
+            let source = note as NSString
+            let tokens = Self.placeholderPattern.matches(in: note, range: NSRange(location: 0, length: source.length))
+                .map { source.substring(with: $0.range) }
+            return tokens.isEmpty || !tokens.allSatisfy { filledTokens.contains($0) }
+        }
         return copy
     }
     private static let placeholderPattern = try! NSRegularExpression(pattern: "\\[[^\\[\\]\\r\\n]+\\]")

@@ -36,4 +36,20 @@ public enum DemoContent {
             PromptInput(id: "ton", label: "Ton", kind: .scale, placeholder: "[Ton]", options: ["locker", "freundlich", "förmlich"], suggestion: "freundlich", why: "Du hast „freundlich“ geschrieben – hier kannst du es genauer festlegen.")
         ]
     )
+
+    /// `--demo-meal`: the reported case – the model left `[Ingredients and quantities]` without
+    /// a field. The app must still offer one (see `coveringPlaceholders`).
+    public static let mealOriginal = "Erstelle einen vegetarischen Essensplan für zwei Personen für drei Abende. Insgesamt höchstens 25 Euro, keine Pilze, kein Backofen, höchstens 20 Minuten pro Mahlzeit. Nur Zutaten, die ich schon habe."
+    public static let mealResponse = CoachResponse(
+        status: .improved,
+        coachMessage: "Nenne deine vorhandenen Zutaten, dann passt der Plan genau.",
+        segments: [
+            PromptSegment(id: "s1", text: "Erstelle einen vegetarischen Essensplan für zwei Personen für drei Abende. Insgesamt höchstens 25 Euro, keine Pilze, kein Backofen, höchstens 20 Minuten pro Mahlzeit. "),
+            PromptSegment(id: "s2", text: "Verwende ausschließlich diese vorhandenen Zutaten: [Ingredients and quantities].")
+        ],
+        changes: [
+            PromptChange(id: "c1", kind: .addition, targetSegmentIDs: ["s2"], category: "Kontext", title: "Vorhandene Zutaten nennen", explanation: "So plant die KI nur mit dem, was du wirklich hast.", ruleID: "unknowns-v1")
+        ],
+        exercise: CoachExercise(id: "ex1", question: "Welche Zutaten hast du noch?", category: "Kontext")
+    )
 }

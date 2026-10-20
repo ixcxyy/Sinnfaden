@@ -140,13 +140,32 @@
         guard wordOnly.count == 1, wordOnly[0].width < 60 else { fatalError("Anchor includes trailing whitespace") }
         checks += 1
         let state = AnnotationBubbleState()
-        let shortHost = NSHostingView(rootView: AnnotationBubbleContent(state: state, change: change, width: 300, close: {}, pin: {}, compare: nil))
+        let shortHost = NSHostingView(rootView: AnnotationBubbleContent(state: state, change: change, width: 300))
         var longerChange = change
         longerChange.explanation = "Sag dazu, für wen die Erklärung gedacht ist. So kann die Antwort passende Begriffe und Beispiele auswählen. Für eine kurze allgemeine Definition ist diese Ergänzung nicht immer nötig. Du kannst selbst entscheiden, welche Angaben zur Aufgabe beitragen."
-        let longer = NSHostingView(rootView: AnnotationBubbleContent(state: state, change: longerChange, width: 350, close: {}, pin: {}, compare: nil))
+        let longer = NSHostingView(rootView: AnnotationBubbleContent(state: state, change: longerChange, width: 350))
         guard shortHost.fittingSize.width == 300 && longer.fittingSize.width == 350 else { fatalError("Text measurement not constrained") }
         guard longer.fittingSize.height > shortHost.fittingSize.height else { fatalError("Bubble doesn't adapt to content") }
         checks += 2
-        print("Native annotation checks passed: \(checks). Unicode, layout, cursor bounds, frame-independent damping, retargeting, wrapped anchors, corridor, liquid outline, volume, lead/trail edges, reversal, soft limits, width choice, glyph-tight anchors, content sizing, inline overflow fallback and annotation-cache invalidation.")
+        // The cursor is the centre: its hotspot rests in the band between heading and explanation,
+        // horizontally centred under the arrow; near window edges the body moves inward around it.
+        let restHeader = AnnotationBubbleContent.headerHeight(change: change, width: 300)
+        let restFromTop = AnnotationTuning.bubblePadding + restHeader + AnnotationTuning.cursorRestTop
+        let restSize = CGSize(width: 300, height: 220), roomy = CGRect(x: 0, y: 0, width: 1200, height: 800)
+        let hotspot = CGPoint(x: 600, y: 400)
+        let centred = AnnotationGeometry.centred(size: restSize, around: hotspot, boundary: roomy)
+        guard abs(centred.midX - (hotspot.x + AnnotationTuning.cursorArrowHalfWidth)) < 0.5,
+              abs(centred.midY - hotspot.y) < 0.5,
+              restHeader > 20, restFromTop + AnnotationTuning.cursorRest < restSize.height else { fatalError("Cursor does not rest between heading and explanation") }
+        for corner in [CGPoint(x: 8, y: 795), CGPoint(x: 1195, y: 6), CGPoint(x: 1195, y: 795), CGPoint(x: 4, y: 4)] {
+            let edge = AnnotationGeometry.centred(size: restSize, around: corner, boundary: roomy)
+            guard roomy.contains(edge), edge.insetBy(dx: -12, dy: -12).contains(corner) else { fatalError("Edge does not deform inward around the cursor") }
+        }
+        let shortContent = NSHostingView(rootView: AnnotationBubbleContent(state: state, change: change, width: 300))
+        guard shortContent.fittingSize.height >= restFromTop + AnnotationTuning.cursorRest else { fatalError("Rest band missing") }
+        guard AnnotationTuning.hoverDelay >= 0.1 && AnnotationTuning.hoverDelay <= 0.15,
+              AnnotationTuning.cursorPopLead.response >= 0.24 && AnnotationTuning.cursorPopTrail.response <= 0.34 else { fatalError("Hover timing outside 100–150 ms + 240–340 ms") }
+        checks += 8
+        print("Native annotation checks passed: \(checks). Unicode, layout, cursor bounds, frame-independent damping, retargeting, wrapped anchors, corridor, liquid outline, volume, lead/trail edges, reversal, soft limits, width choice, glyph-tight anchors, content sizing, inline overflow fallback, annotation-cache invalidation and the cursor-centred rest.")
     }
 }

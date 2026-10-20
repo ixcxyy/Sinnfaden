@@ -182,6 +182,7 @@ public enum CoachSanitizer {
     private static func pruneInputs(_ response: inout CoachResponse) {
         guard response.status == .improved else { response.inputs = []; return }
         var kept: [PromptInput] = []
+        var unmatched: [PromptInput] = []
         var ids = Set<String>(), placeholders = Set<String>()
         for candidate in response.inputs {
             var input = candidate
@@ -193,6 +194,14 @@ public enum CoachSanitizer {
                 .filter { CoachValidator.nonempty($0) && seenOptions.insert($0).inserted }.prefix(8))
             if [.choice, .multi_choice, .scale].contains(input.kind) && input.options.count < 2 { input.kind = .text; input.options = [] }
             if let suggestion = input.suggestion { input.suggestion = CoachValidator.nonempty(suggestion) ? trimmed(suggestion, limit: 400) : nil }
+            // A field naming a token that is not in the prompt is kept aside: it may belong to
+            // an orange placeholder the model wrote differently.
+            if !ids.contains(input.id), !response.prompt.contains(input.placeholder) {
+                var candidate = input
+                candidate.placeholder = "[x]"
+                if (try? CoachValidator.validateInput(candidate, prompt: "[x]")) != nil { unmatched.append(input) }
+                continue
+            }
             guard !ids.contains(input.id), !placeholders.contains(input.placeholder),
                   (try? CoachValidator.validateInput(input, prompt: response.prompt)) != nil else { continue }
             ids.insert(input.id); placeholders.insert(input.placeholder)
@@ -200,6 +209,8 @@ public enum CoachSanitizer {
             if kept.count == 12 { break }
         }
         response.inputs = kept
+        // Every orange placeholder gets exactly one field, so nothing shown is left unfillable.
+        response = response.coveringPlaceholders(unmatched: unmatched.filter { !ids.contains($0.id) })
     }
 
     // MARK: - Helpers

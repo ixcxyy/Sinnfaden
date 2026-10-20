@@ -62,6 +62,7 @@ struct ContentView: View {
                         .opacity(shellVisible ? 1 : 0)
                         .offset(y: shellVisible || reduceMotion ? 0 : -24)
                         .animation(.spring(response: 0.7, dampingFraction: 0.85), value: shellVisible)
+                    ScrollViewReader { scroller in
                     ScrollView {
                         VStack(alignment: .leading, spacing: 24) {
                             pageContent(wide: wide)
@@ -75,6 +76,12 @@ struct ContentView: View {
                         .frame(minHeight: geometry.size.height - 80, alignment: model.page == .coach && model.response == nil ? .center : .top)
                     }
                     .scrollIndicators(.never)
+                    // A click on an orange placeholder brings its field into view.
+                    .onChange(of: model.focusedInputID) { _, id in
+                        guard let id else { return }
+                        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.35)) { scroller.scrollTo("input-" + id, anchor: .center) }
+                    }
+                    }
                     .animation(reduceMotion ? .easeOut(duration: 0.15) : SinnMotion.page, value: model.page)
                     .opacity(shellVisible ? 1 : 0)
                     .animation(.easeOut(duration: 0.6).delay(0.1), value: shellVisible)

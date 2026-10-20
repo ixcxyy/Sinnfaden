@@ -11,6 +11,11 @@ struct CoachView: View {
     @State private var editorHeight: CGFloat = 0
     @State private var editor = PromptEditorHandle()
     @State private var launch: WordLaunch?
+    /// Seed of the current run: send and loading motion differ per request.
+    @State private var runSeed = AnimationSeed.next()
+    /// A fast answer lets the last drops land at triple speed instead of cutting them off.
+    @State private var hurryFrom: Date?
+    @State private var finishToken = UUID()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private static let examples = [
@@ -21,16 +26,18 @@ struct CoachView: View {
 
     var body: some View {
         ZStack {
-            if model.busy {
+            if model.busy || hurryFrom != nil {
                 // With flying words the stage appears at once: the words must match the editor
-                // in the very first frame. The result arrives as the body flattens and fades.
-                SendingView(message: model.progressMessage, validating: model.phase == .validating, draft: model.draft, launch: launch, cancel: model.cancel)
+                // in the very first frame. The result arrives as the body unfolds toward it.
+                SendingView(message: model.progressMessage, validating: model.phase == .validating, draft: model.draft, launch: launch,
+                            hurryFrom: hurryFrom, seed: runSeed, cancel: model.cancel)
                     .transition(.asymmetric(insertion: launch == nil ? .opacity.animation(.easeOut(duration: 0.2)) : .identity,
                                             removal: reduceMotion ? .opacity.animation(.easeOut(duration: 0.15))
                                                 : .modifier(active: Unfold(amount: 1), identity: Unfold(amount: 0)).animation(.easeIn(duration: 0.26))))
             } else if let response = model.response {
                 ResultSplit(model: model, response: response, wide: wide)
-                    .transition(.opacity.animation(.easeOut(duration: 0.28).delay(0.06)))
+                    .transition(reduceMotion ? .opacity.animation(.easeOut(duration: 0.2))
+                                : .modifier(active: Emerge(amount: 1), identity: Emerge(amount: 0)).animation(.easeOut(duration: 0.34).delay(0.08)))
             } else {
                 hero
                     .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 20)).animation(reduceMotion ? .easeOut(duration: 0.2) : .spring(response: 0.6, dampingFraction: 0.86)),
@@ -39,14 +46,44 @@ struct CoachView: View {
         }
         // Each transition carries its own animation. A blanket animation on the state switch
         // would also animate the first layout of hosted AppKit text and strand it off its slot.
-        .onChange(of: model.busy) { _, busy in if !busy { launch = nil } }
+        .onChange(of: model.busy) { _, busy in busy ? beginRun() : endRun() }
+    }
+
+    private func beginRun() {
+        finishToken = UUID()
+        hurryFrom = nil
+        if launch == nil { runSeed = AnimationSeed.next() }
+    }
+
+    /// The answer is there: let the drops still in the air land quickly, then show it. A cancel
+    /// or an error ends the motion where it is; the draft stays in the editor.
+    private func endRun() {
+        let token = UUID()
+        finishToken = token
+        let answered = model.response != nil && (model.phase == .showingResult || model.phase == .clarifying)
+        guard answered, let launch, !reduceMotion else { finishRun(); return }
+        let remaining = GatheringStage.remaining(launch, answerAt: Date())
+        guard remaining > 0.02 else { finishRun(); return }
+        hurryFrom = Date()
+        DispatchQueue.main.asyncAfter(deadline: .now() + remaining) {
+            // A newer send or a cancel replaced this run: an old timer never revives anything.
+            guard finishToken == token, !model.busy else { return }
+            finishRun()
+        }
+    }
+
+    private func finishRun() {
+        hurryFrom = nil
+        launch = nil
+        editor.setTextHidden(false)
     }
 
     /// Captures where every typed word sits, then sends. The words leave from exactly there.
     private func send() {
         guard model.canSubmit else { return }
+        runSeed = AnimationSeed.next()
         if !reduceMotion {
-            launch = WordLaunch(words: editor.capturedWords(), fontSize: model.fontSize + 2, start: Date())
+            launch = WordLaunch(words: editor.capturedWords(), fontSize: model.fontSize + 2, start: Date(), seed: runSeed)
             editor.setTextHidden(true)
         }
         // The request starts right away; the animation never delays it.
@@ -146,13 +183,15 @@ struct SendingView: View {
     let validating: Bool
     let draft: String
     var launch: WordLaunch?
+    var hurryFrom: Date?
+    var seed: UInt64 = 1
     let cancel: () -> Void
     @State private var captionsVisible = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(spacing: 34) {
-            GatheringStage(launch: launch, checking: validating, size: 340)
+            GatheringStage(launch: launch, checking: validating, size: 340, hurryFrom: hurryFrom, seed: seed)
                 .frame(height: 380)
             VStack(spacing: 14) {
                 Text(message.isEmpty ? "Wird gesendet …" : message)
@@ -180,8 +219,8 @@ struct SendingView: View {
 
     private func stage(_ title: String, done: Bool, active: Bool) -> some View {
         HStack(spacing: 6) {
-            Image(systemName: done ? "checkmark.circle.fill" : active ? "circle.dotted" : "circle")
-                .symbolEffect(.pulse, isActive: active && !reduceMotion)
+            // An honest, still marker: no spinner, no pulse. The body above carries the motion.
+            Image(systemName: done ? "checkmark.circle.fill" : active ? "smallcircle.filled.circle" : "circle")
             Text(title)
         }
         .font(.system(size: 12, weight: .semibold))
@@ -209,6 +248,7 @@ private enum ResultLens: String, CaseIterable, Identifiable {
 struct ResultSplit: View {
     @ObservedObject var model: AppModel
     let response: CoachResponse
+    private var currentResponse: CoachResponse { model.displayedResponse ?? response }
     let wide: Bool
     private var lens: ResultLens { ResultLens(rawValue: model.insightMode) ?? .map }
     @State private var appeared = false
@@ -248,7 +288,7 @@ struct ResultSplit: View {
 
     /// The right column exists when there is something to explain or to fill in.
     private var showsExplain: Bool {
-        response.status != .needs_clarification && (!response.changes.isEmpty || (!response.inputs.isEmpty && model.solutionRevealed && !model.manuallyEdited))
+        response.status != .needs_clarification && !response.changes.isEmpty
     }
 
     private var header: some View {
@@ -288,7 +328,6 @@ struct ResultSplit: View {
 
     private var promptColumn: some View {
         VStack(alignment: .leading, spacing: 16) {
-            if !(wide && showsExplain) { inputsForm }
             VStack(alignment: .leading, spacing: 0) {
                 // No opacity or transition around the native text, and the bar shares its stack:
                 // AppKit hosts otherwise land at a stale position above their slot.
@@ -304,6 +343,8 @@ struct ResultSplit: View {
                     }
                 }
                 .padding(22)
+                // Fields sit right under the prompt they complete, independent of any practice.
+                inputsForm
                 if showsActions {
                     actionBar
                 }
@@ -357,10 +398,27 @@ struct ResultSplit: View {
     /// The things you do with the prompt, together at the bottom edge of the sheet.
     private var actionBar: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HandoffButton(service: model.handoff, prompt: model.visiblePrompt, expanded: true)
+            HandoffButton(service: model.handoff, prompt: model.visiblePrompt, expanded: true, shouldOpen: { model.mayHandOff() })
                 .disabled(!model.canUsePrompt)
+            if model.copyNeedsInputs && !model.openPlaceholders.isEmpty {
+                // Never a silently incomplete prompt: say what is missing, lead to it, and offer
+                // a clearly labelled copy that keeps the placeholders.
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Image(systemName: "exclamationmark.circle.fill").foregroundStyle(Color.orange)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Noch offen: \(openLabels). Füll das markierte Feld aus, dann ist der Prompt vollständig.")
+                            .font(.system(size: 12, weight: .medium)).fixedSize(horizontal: false, vertical: true)
+                        Button("Trotzdem mit Platzhaltern kopieren") { model.copyPrompt(allowOpen: true) }
+                            .buttonStyle(.plain).font(.system(size: 12, weight: .semibold)).foregroundStyle(Color.sinnMuted)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(10)
+                .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
             HStack(spacing: 8) {
-                SheetAction(symbol: model.copied ? "checkmark" : "doc.on.doc", title: model.copied ? "Kopiert" : "Kopieren") { model.copyPrompt() }
+                SheetAction(symbol: model.copied ? "checkmark" : "doc.on.doc",
+                            title: model.copied ? (model.copiedWithOpenPlaceholders ? "Mit Platzhaltern kopiert" : "Kopiert") : "Kopieren") { model.copyPrompt() }
                     .disabled(!model.canUsePrompt)
                 SheetAction(symbol: model.editing ? "checkmark" : "pencil", title: model.editing ? "Fertig" : "Bearbeiten") {
                     if model.editing { model.editing = false } else { model.beginEditing() }
@@ -403,15 +461,11 @@ struct ResultSplit: View {
             } else if model.manuallyEdited {
                 Text(model.editedPrompt).font(.system(size: model.fontSize)).lineSpacing(6).textSelection(.enabled)
             } else {
-                AnnotatedPromptView(response: model.displayedResponse ?? response, fontSize: model.fontSize, onHelpUsed: { model.exerciseHelp = true }, onCompare: { model.compare($0) })
-                if !model.openRequiredInputs.isEmpty {
-                    Label("Noch offen: " + model.openRequiredInputs.map(\.label).joined(separator: ", "), systemImage: "exclamationmark.circle")
-                        .font(.system(size: 12, weight: .medium)).foregroundStyle(Color.orange)
-                        .transition(.opacity)
-                }
+                AnnotatedPromptView(response: model.displayedResponse ?? response, fontSize: model.fontSize, onHelpUsed: { model.exerciseHelp = true },
+                                    onCompare: { model.compare($0) }, onPlaceholder: { model.focusInput(placeholder: $0) })
             }
-            if !response.unknowns.isEmpty {
-                Label(response.unknowns.joined(separator: " · "), systemImage: "questionmark.circle")
+            if !currentResponse.unknowns.isEmpty {
+                Label(currentResponse.unknowns.joined(separator: " · "), systemImage: "questionmark.circle")
                     .font(.system(size: 12)).foregroundStyle(Color.sinnMuted).fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -420,15 +474,19 @@ struct ResultSplit: View {
     // MARK: Explanation column
 
     /// Fields first on the right, so the prompt on the left stays in view and fills live.
+    private var openLabels: String {
+        let inputs = response.inputs
+        return model.openPlaceholders.map { token in inputs.first { $0.placeholder == token }?.label ?? token }.joined(separator: ", ")
+    }
+
     @ViewBuilder private var inputsForm: some View {
-        if response.status != .needs_clarification, model.solutionRevealed, !response.inputs.isEmpty, !model.manuallyEdited {
-            PromptInputsForm(model: model, inputs: response.inputs)
+        if response.status == .improved, !response.inputs.isEmpty, !model.manuallyEdited {
+            PromptInputsForm(model: model, inputs: response.inputs, embedded: true)
         }
     }
 
     private var explainColumn: some View {
         VStack(alignment: .leading, spacing: 18) {
-            if wide { inputsForm }
             if !response.changes.isEmpty { lensPicker }
         }
     }
@@ -456,9 +514,9 @@ struct ResultSplit: View {
             .overlay(Capsule().strokeBorder(Color.white.opacity(0.8)))
             Group {
                 switch lens {
-                case .map: ChangeMindmap(response: response, original: model.submittedOriginal)
-                case .grid: ChangeGrid(response: response)
-                case .steps: StepByStep(response: response, onPractice: { model.showExercise = true })
+                case .map: ChangeMindmap(response: currentResponse, original: model.submittedOriginal)
+                case .grid: ChangeGrid(response: currentResponse)
+                case .steps: StepByStep(response: currentResponse, onPractice: { model.showExercise = true })
                 }
             }
             .id(lens)
@@ -512,12 +570,25 @@ private struct SuckedIn: ViewModifier {
     }
 }
 
-/// The settled body flattens a little and fades as the result takes its place.
+/// The settled body spreads out flat toward the result area above it and fades into it.
 private struct Unfold: ViewModifier {
     let amount: CGFloat
     func body(content: Content) -> some View {
         content
-            .scaleEffect(x: 1 + 0.06 * amount, y: 1 - 0.12 * amount, anchor: .center)
+            .scaleEffect(x: 1 + 0.45 * amount, y: 1 - 0.55 * amount, anchor: UnitPoint(x: 0.5, y: 0.2))
+            .blur(radius: 6 * amount)
+            .opacity(Double(1 - amount))
+    }
+}
+
+/// The result opens out of that spreading surface: from slightly compressed to its full size.
+private struct Emerge: ViewModifier {
+    let amount: CGFloat
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(x: 1, y: 1 - 0.04 * amount, anchor: .top)
+            .offset(y: -8 * amount)
+            .blur(radius: 3 * amount)
             .opacity(Double(1 - amount))
     }
 }

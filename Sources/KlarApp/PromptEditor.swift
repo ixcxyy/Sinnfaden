@@ -2,10 +2,20 @@ import AppKit
 import SwiftUI
 
 /// Where one typed word sits on screen, in SwiftUI's global (window, top-left) space.
+struct CapturedWordFragment: Equatable {
+    let text: String
+    let frame: CGRect
+}
+
 struct CapturedWord: Identifiable, Equatable {
     let id: Int
     let text: String
     let frame: CGRect
+    var fragments: [CapturedWordFragment] = []
+
+    var sourceFragments: [CapturedWordFragment] {
+        fragments.isEmpty ? [CapturedWordFragment(text: text, frame: frame)] : fragments
+    }
 }
 
 /// Lets the coach page ask the editor where its words are, right before they fly off.
@@ -20,22 +30,34 @@ final class PromptEditorHandle {
     }
 
     func capturedWords(limit: Int = 80) -> [CapturedWord] {
-        guard let textView, let layout = textView.layoutManager, let container = textView.textContainer,
+        guard let textView else { return [] }
+        return Self.captureWords(in: textView, limit: limit)
+    }
+
+    static func captureWords(in textView: NSTextView, limit: Int = 80) -> [CapturedWord] {
+        guard limit > 0, let layout = textView.layoutManager, let container = textView.textContainer,
               let root = textView.window?.contentView else { return [] }
         let string = textView.string as NSString
         var words: [CapturedWord] = []
         let visible = textView.visibleRect
-        string.enumerateSubstrings(in: NSRange(location: 0, length: string.length), options: .byWords) { substring, range, _, stop in
-            guard let substring else { return }
-            let glyphs = layout.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
-            var rect = layout.boundingRect(forGlyphRange: glyphs, in: container)
-            rect.origin.x += textView.textContainerOrigin.x
-            rect.origin.y += textView.textContainerOrigin.y
-            guard rect.intersects(visible) else { return }
-            var converted = root.convert(rect, from: textView)
-            if !root.isFlipped { converted.origin.y = root.bounds.height - converted.maxY }
-            words.append(CapturedWord(id: words.count, text: substring, frame: converted))
-            if words.count >= limit { stop.pointee = true }
+        let tokens = try! NSRegularExpression(pattern: "\\S+")
+        layout.ensureLayout(for: container)
+        let glyphs = layout.glyphRange(for: container)
+        // Capture per laid-out line. Word enumeration loses punctuation, emoji and currency;
+        // a single bounding rect for a wrapped URL also moves its characters on the first frame.
+        layout.enumerateLineFragments(forGlyphRange: glyphs) { _, _, _, line, stop in
+            let characters = layout.characterRange(forGlyphRange: line, actualGlyphRange: nil)
+            for match in tokens.matches(in: textView.string, range: characters) {
+                let tokenGlyphs = layout.glyphRange(forCharacterRange: match.range, actualCharacterRange: nil)
+                var rect = layout.boundingRect(forGlyphRange: tokenGlyphs, in: container)
+                rect.origin.x += textView.textContainerOrigin.x
+                rect.origin.y += textView.textContainerOrigin.y
+                guard rect.intersects(visible) else { continue }
+                var converted = root.convert(rect, from: textView)
+                if !root.isFlipped { converted.origin.y = root.bounds.height - converted.maxY }
+                words.append(CapturedWord(id: words.count, text: string.substring(with: match.range), frame: converted))
+                if words.count >= limit { stop.pointee = true; break }
+            }
         }
         return words
     }

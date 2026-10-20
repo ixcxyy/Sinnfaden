@@ -18,7 +18,7 @@ enum AnnotationAccessibility {
 /// animation completion checks a generation token, so a stale callback can
 /// never overwrite a newer state.
 enum AnnotationInteractionState: String {
-    case idle, arming, forming, following, reading, pinned, morphing, retracting
+    case idle, arming, forming, following, morphing, retracting
 
     /// The lens body is on screen (possibly still forming or retracting).
     var isPresented: Bool { self != .idle && self != .arming }
@@ -74,8 +74,9 @@ struct AnnotationTiming {
 /// Tuned starting points. Position, contour and light deliberately use
 /// different speeds, close enough to read as one body.
 enum AnnotationTuning {
-    static let hoverDelay = 0.14
-    static let leaveTolerance = 0.20
+    /// ~120 ms of intent until the nucleus, then ~300 ms until the body is open.
+    static let hoverDelay = 0.12
+    static let leaveTolerance = 0.24
     static let textFadeOut = 0.075
     static let morphHandOff = 0.30
     static let formHandOff = 0.40
@@ -95,16 +96,17 @@ enum AnnotationTuning {
     static let cursorLead = AnnotationTiming(0.15, 0.86)
     static let cursorTrail = AnnotationTiming(0.15, 0.86)
     static let cursorText = AnnotationTiming(0.15, 0.86)
-    // Formation (~300 ms): the leading edge first, one ~3 % overshoot, then rest.
-    static let cursorPopLead = AnnotationTiming(0.24, 0.74)
-    static let cursorPopTrail = AnnotationTiming(0.31, 0.80)
-    /// Text starts this far right of the hotspot (minus the bubble's 22 pt padding).
-    static let cursorTextInset: CGFloat = 6
-    static let cursorLineGap: CGFloat = 4
+    // Formation (~300 ms): every edge grows away from the cursor, one ~3 % overshoot, then rest.
+    static let cursorPopLead = AnnotationTiming(0.26, 0.76)
+    static let cursorPopTrail = AnnotationTiming(0.30, 0.80)
     static let cursorTip = AnnotationTiming(0.05, 0.95)
-    static let cursorPop = AnnotationTiming(0.24, 0.74)
     static let cursorRetract = AnnotationTiming(0.17, 0.95)
-    static let cursorNeck: CGFloat = 10
+    /// Balanced content keeps this quiet band at the geometric centre of the lens.
+    static let bubblePadding: CGFloat = 20
+    static let cursorRest: CGFloat = 34
+    static let cursorRestTop: CGFloat = cursorRest / 2
+    /// Anchor the actual pointer hotspot, including the I-beam used over text.
+    static let cursorArrowHalfWidth: CGFloat = 0
 
     // Reading layer and light.
     static let text = AnnotationTiming(0.28, 0.90)
@@ -169,16 +171,6 @@ struct AnnotationLensMotion {
         top.retarget(rect.maxY, pick(top, rect.maxY, outward: 1))
     }
 
-    /// Short local compression, then the surface settles (used for pinning).
-    mutating func compress(by speed: CGFloat) {
-        left.velocity += speed; right.velocity -= speed
-        bottom.velocity += speed * 0.8; top.velocity -= speed * 0.8
-        for edge in [\AnnotationLensMotion.left, \.right, \.bottom, \.top] {
-            self[keyPath: edge].damping = 0.62; self[keyPath: edge].response = 0.26
-        }
-        rim.velocity += 7
-    }
-
     /// Rate of shape change, used for surface tension ripples and rim energy.
     var energy: CGFloat {
         min(1, (abs(left.velocity) + abs(right.velocity) + abs(bottom.velocity) + abs(top.velocity)) / 1400)
@@ -224,6 +216,13 @@ enum AnnotationGeometry {
         let range = AnnotationTuning.cursorRange, gain = AnnotationTuning.cursorGain
         return CGSize(width: min(range.width, max(-range.width, (pointer.x - origin.x) * gain)),
                       height: min(range.height, max(-range.height, (pointer.y - origin.y) * gain)))
+    }
+
+    /// The pointer is the body's centre; window edges push the reading surface inward.
+    static func centred(size: CGSize, around point: CGPoint, boundary: CGRect) -> CGRect {
+        let frame = CGRect(x: point.x - size.width / 2,
+                           y: point.y - size.height / 2, width: size.width, height: size.height)
+        return clamp(frame, inside: boundary)
     }
 
     static func clamp(_ frame: CGRect, inside boundary: CGRect) -> CGRect {
