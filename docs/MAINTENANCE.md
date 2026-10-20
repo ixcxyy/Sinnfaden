@@ -2,6 +2,8 @@
 
 Implemented on 19 October 2026. Current published package: **Sinnfaden 0.4.3, build 8** (20 October).
 
+The prompt-visibility fix is pushed as **0.4.4/build 9**, with 201 passing automated tests. Its signed package is prepared; macOS installation operations are still pending, so it is not yet published. See [the build-9 handoff](RELEASE-0.4.4.md) before deploying or replacing either pending installation.
+
 Deployment follow-up: the report relay and signed update host are now deployed on Cloudflare's **Free ($0)** plan. The signing key is in this Mac's Keychain. See [free hosting and release operations](FREE-HOSTING.md) for the live addresses, token setup and development-distribution limitations. The steps below also explain how to reconnect credentials or move to production signing later.
 
 ## What works locally
@@ -36,7 +38,7 @@ The report destination is **[ixcxyy/Sinnfaden](https://github.com/ixcxyy/Sinnfad
 
 1. The private repository and Issues are ready. Keep this repository private: the relay refuses to create reports in a public repository.
 2. Create a fine-grained GitHub token restricted to that repository with Issues read/write and the default Metadata read access. Keep it only as the relay's `GITHUB_TOKEN` secret. It must never appear in the Mac app or source control. GitHub App installation tokens can replace it later.
-3. `services/bug-relay/wrangler.jsonc` already sets `GITHUB_REPOSITORY` to `ixcxyy/Sinnfaden`. `ALLOWED_RELEASES` is a comma-separated allowlist of `version+build`, currently `0.4.1+5,0.4.2+6,0.4.3+8`. Keep supported older releases while updating it. This reduces forged-report abuse; the public endpoint is not proof that a real installation generated a report.
+3. `services/bug-relay/wrangler.jsonc` already sets `GITHUB_REPOSITORY` to `ixcxyy/Sinnfaden`. `ALLOWED_RELEASES` is a comma-separated allowlist of `version+build`, currently `0.4.1+5,0.4.2+6,0.4.3+8,0.4.4+9` (including the prepared build 9). Keep supported older releases while updating it. This reduces forged-report abuse; the public endpoint is not proof that a real installation generated a report.
 4. In that directory, run `npm ci`, `npm test`, and `npx wrangler deploy --dry-run`. Connect the intended Cloudflare account, set the secret using `npx wrangler secret put GITHUB_TOKEN`, and deploy with `npx wrangler deploy` when ready. The current account and relay are already deployed on Workers Free.
 5. The live reporting URL is already in `Config/Info.plist`; `KLAR_BUG_REPORT_URL` can override it when moving hosting. Enable reporting in Settings → Updates & Fehler on each consenting installation.
 6. Watch the private repository's Issues notifications in GitHub; email or mobile alerts are controlled by your GitHub account settings. These preferences were not changed here.
