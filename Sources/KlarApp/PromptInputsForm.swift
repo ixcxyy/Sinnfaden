@@ -73,6 +73,7 @@ private struct InputFieldRow: View {
     let input: PromptInput
     @Binding var value: String
     @State private var date = Date()
+    @FocusState private var editingDateText: Bool
 
     private var filled: Bool { !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     private var hint: String { input.placeholder.trimmingCharacters(in: CharacterSet(charactersIn: "[]")) }
@@ -123,8 +124,13 @@ private struct InputFieldRow: View {
                     .labelsHidden()
             }
         case .date:
-            DatePicker("", selection: Binding(get: { date }, set: { date = $0; value = $0.formatted(.dateTime.day().month(.wide).year().locale(Locale(identifier: "de_DE"))) }), displayedComponents: .date)
-                .datePickerStyle(.field).labelsHidden()
+            if editingDateText || PromptDateInput.requiresTextEntry(for: value) {
+                TextField(hint, text: $value).textFieldStyle(SinnFieldStyle())
+                    .focused($editingDateText)
+            } else {
+                DatePicker("", selection: Binding(get: { PromptDateInput.selection(from: value, fallback: date) }, set: { date = $0; value = PromptDateInput.text(for: $0) }), displayedComponents: .date)
+                    .datePickerStyle(.field).labelsHidden()
+            }
         }
     }
 }
