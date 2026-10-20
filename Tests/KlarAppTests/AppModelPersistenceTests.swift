@@ -1,5 +1,6 @@
 import XCTest
 import SQLite3
+import Combine
 @testable import KlarApp
 @testable import KlarCore
 
@@ -260,6 +261,41 @@ final class AppModelPersistenceTests: XCTestCase {
         XCTAssertEqual(reopened.inputValues["place"], "im Park")
     }
 
+    func testFieldAnswersStillUpdateAnUntouchedOpenTextEditor() async throws {
+        let root = try temporaryDirectory()
+        let app = model(at: root)
+        let first = entry()
+        app.select(first)
+        app.beginEditing()
+        app.inputValues["place"] = "beim Café 👋"
+        XCTAssertEqual(app.visiblePrompt, "Wir treffen uns beim Café 👋.")
+        app.updateEditedPrompt()
+        app.editing = false
+        XCTAssertFalse(app.manuallyEdited)
+        XCTAssertNil(app.history.first { $0.id == first.id }?.editedPrompt)
+        XCTAssertEqual(app.visiblePrompt, "Wir treffen uns beim Café 👋.")
+        let reopened = model(at: root)
+        reopened.select(try XCTUnwrap(reopened.history.first { $0.id == first.id }))
+        XCTAssertEqual(reopened.visiblePrompt, "Wir treffen uns beim Café 👋.")
+        XCTAssertFalse(reopened.manuallyEdited)
+    }
+
+    func testFieldChangeDoesNotOverwriteTypedTextBeforeEditNotificationArrives() async throws {
+        let root = try temporaryDirectory()
+        let app = model(at: root)
+        app.select(entry())
+        app.beginEditing()
+        app.editedPrompt = "Meine gerade eingegebene Einladung"
+        // SwiftUI's edit notification has not run yet; the current text is still authoritative.
+        XCTAssertFalse(app.manuallyEdited)
+        app.inputValues["place"] = "am See"
+        XCTAssertEqual(app.visiblePrompt, "Meine gerade eingegebene Einladung")
+        app.updateEditedPrompt()
+        app.editing = false
+        XCTAssertTrue(app.manuallyEdited)
+        XCTAssertEqual(app.visiblePrompt, "Meine gerade eingegebene Einladung")
+    }
+
     func testPracticeAfterOpeningWorkedExampleFromHistoryIsMarkedSupported() async throws {
         let root = try temporaryDirectory()
         let app = model(at: root)
@@ -273,6 +309,54 @@ final class AppModelPersistenceTests: XCTestCase {
         XCTAssertEqual(attempts.last?.helpUsed, true)
         XCTAssertTrue(app.exerciseFeedback.contains("unterstützt"))
         XCTAssertEqual(LearningProgress.stage(for: attempts), .example)
+    }
+
+    func testCancellingANewDemoDoesNotMarkAnOlderHistoryEntryInterrupted() async throws {
+        let root = try temporaryDirectory()
+        let store = try HistoryStore(accountID: "demonstration", baseURL: root)
+        try store.save(HistoryEntry(original: "Älterer gespeicherter Entwurf", outcome: "draft"))
+        let previous = try XCTUnwrap(store.entries().first)
+        let app = model(at: root)
+        app.draft = previous.original
+        app.select(previous)
+        app.draft = "Neuer synthetischer Demo-Entwurf"
+        app.improve()
+        app.cancel()
+
+        let saved = try store.entries()
+        XCTAssertEqual(saved.first { $0.id == previous.id }, previous)
+        let interrupted = try XCTUnwrap(saved.first { $0.original == "Neuer synthetischer Demo-Entwurf" })
+        XCTAssertNotEqual(interrupted.id, previous.id)
+        XCTAssertEqual(interrupted.outcome, "interrupted")
+        XCTAssertNil(interrupted.response)
+        XCTAssertTrue(interrupted.practiceAttempts.isEmpty)
+    }
+
+    func testDemoResultAndPracticeAreSavedToTheirOwnHistoryEntry() async throws {
+        let root = try temporaryDirectory()
+        let store = try HistoryStore(accountID: "demonstration", baseURL: root)
+        try store.save(HistoryEntry(original: "Älterer gespeicherter Entwurf", outcome: "draft"))
+        let previous = try XCTUnwrap(store.entries().first)
+        let app = model(at: root)
+        app.draft = previous.original
+        app.select(previous)
+        app.draft = DemoContent.original
+        let completed = expectation(description: "Bundled demo completed")
+        let subscription = app.$phase.dropFirst().filter { $0 == .showingResult }.prefix(1).sink { _ in completed.fulfill() }
+        defer { subscription.cancel(); app.cancel() }
+        app.improve()
+        await fulfillment(of: [completed], timeout: 5)
+
+        let result = try XCTUnwrap(store.entries().first { $0.original == DemoContent.original })
+        XCTAssertNotEqual(result.id, previous.id)
+        XCTAssertEqual(result.response, DemoContent.response)
+        XCTAssertEqual(result.outcome, DemoContent.response.status.rawValue)
+        app.exerciseAnswer = "Bitte formuliere die Einladung für Freitagvormittag."
+        app.submitPractice()
+        let saved = try store.entries()
+        XCTAssertEqual(saved.first { $0.id == previous.id }, previous)
+        XCTAssertEqual(saved.first { $0.id == result.id }?.practiceAttempts.count, 1)
+        XCTAssertEqual(saved.first { $0.id == result.id }?.practiceAttempts.first?.helpUsed, true)
     }
 
     func testReopeningAnAlreadyGoodOriginalDoesNotClaimExampleHelp() async throws {

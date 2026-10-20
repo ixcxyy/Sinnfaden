@@ -27,6 +27,12 @@ final class AppModel: ObservableObject {
         didSet {
             guard !restoringInputValues, oldValue != inputValues else { return }
             copied = false
+            // Keep an untouched editor in sync with the visible form. Comparing its
+            // actual text also protects typing whose SwiftUI notification is still pending.
+            if editing, !manuallyEdited, let response,
+               editedPrompt == response.filled(with: oldValue).prompt {
+                editedPrompt = response.filled(with: inputValues).prompt
+            }
             saveCurrent()
         }
     }
@@ -291,8 +297,12 @@ final class AppModel: ObservableObject {
         activeAttempt = id
         submittedOriginal = draft
         errorMessage = nil; response = nil; editing = false; manuallyEdited = false
-        showExercise = false; exerciseAnswer = ""; exerciseFeedback = ""; copied = false
+        showExercise = false; exerciseAnswer = ""; exerciseFeedback = ""; exerciseHelp = false
+        copied = false; clarificationAnswer = ""; solutionRevealed = false
         phase = .generating; progressMessage = "Dein Anliegen wird gelesen …"
+        // A demo attempt owns its history and practice just like a connected request.
+        currentEntry = HistoryEntry(id: id, original: submittedOriginal, outcome: "generating")
+        saveCurrent()
         task = Task { [weak self] in
             let steps: [(UInt64, Phase, String)] = [(1_100, .generating, "Dein Vorschlag entsteht …"), (1_200, .validating, "Vorschlag und Erklärungen werden geprüft …")]
             for (delay, phase, message) in steps {
@@ -313,6 +323,9 @@ final class AppModel: ObservableObject {
             self.solutionRevealed = true
             self.exerciseHelp = result.status == .improved && result.exercise != nil
             self.phase = .showingResult
+            self.currentEntry?.response = result
+            self.currentEntry?.outcome = result.status.rawValue
+            self.saveCurrent()
             self.activeAttempt = nil
         }
     }
