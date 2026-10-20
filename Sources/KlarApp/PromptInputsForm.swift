@@ -119,7 +119,7 @@ private struct InputFieldRow: View {
         case .number:
             HStack(spacing: 12) {
                 TextField("Zahl", text: $value).textFieldStyle(SinnFieldStyle()).frame(width: 120)
-                Stepper("", value: Binding(get: { Double(value) ?? 0 }, set: { value = $0.formatted(.number.precision(.fractionLength(0))) }), in: 0...10_000)
+                Stepper("", value: Binding(get: { PromptNumberInput.stepperValue(from: value) }, set: { value = PromptNumberInput.text(for: $0) }), in: 0...10_000)
                     .labelsHidden()
             }
         case .date:
