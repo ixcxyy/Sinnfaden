@@ -153,6 +153,48 @@ final class AppModelPersistenceTests: XCTestCase {
         XCTAssertNil(app.storageError)
     }
 
+    func testCommittedHistoryDeletionDoesNotRestoreEntriesWhenCompactionFails() async throws {
+        let root = try temporaryDirectory()
+        let store = try HistoryStore(accountID: "demonstration", baseURL: root)
+        let first = entry()
+        try store.save(first)
+        let app = model(at: root)
+        app.select(first)
+        try execute("CREATE TRIGGER fail_save BEFORE INSERT ON history BEGIN SELECT RAISE(FAIL, 'synthetic save failure'); END", at: store.databaseURL)
+        app.inputValues["place"] = "Eintrag zum Löschen, noch ungespeichert"
+        try execute("DROP TRIGGER fail_save", at: store.databaseURL)
+
+        // Fault only this temporary connection, without a production fault-injection API.
+        // VACUUM internally attaches a temporary database after the DELETE has committed.
+        let appStore = try XCTUnwrap(Mirror(reflecting: app).children.first { $0.label == "store" }?.value as? HistoryStore)
+        let database = try XCTUnwrap(Mirror(reflecting: appStore).children.first { $0.label == "database" }?.value as? OpaquePointer)
+        let denied = UnsafeMutablePointer<Int>.allocate(capacity: 1)
+        denied.initialize(to: 0)
+        defer {
+            withExtendedLifetime(appStore) { _ = sqlite3_set_authorizer(database, nil, nil) }
+            denied.deinitialize(count: 1); denied.deallocate()
+        }
+        XCTAssertEqual(sqlite3_set_authorizer(database, { context, action, _, _, _, _ in
+            guard action == SQLITE_ATTACH else { return SQLITE_OK }
+            context?.assumingMemoryBound(to: Int.self).pointee += 1
+            return SQLITE_DENY
+        }, denied), SQLITE_OK)
+
+        app.deleteHistory()
+        XCTAssertGreaterThan(denied.pointee, 0, "The test must actually fail compaction")
+        XCTAssertTrue(try store.entries().isEmpty, "The deletion itself committed successfully")
+        XCTAssertTrue(app.history.isEmpty)
+        XCTAssertTrue(app.draft.isEmpty)
+        XCTAssertNil(app.storageError, "A committed deletion must not be reported as failed")
+        app.flushPendingSaves()
+        app.saveCurrent()
+        XCTAssertTrue(try store.entries().isEmpty, "Deleted pending entries must never be restored")
+        XCTAssertTrue(try store.loadDraft().isEmpty)
+        let reopened = model(at: root)
+        XCTAssertTrue(reopened.history.isEmpty)
+        // Demo startup intentionally seeds an example draft; stored deletion is checked above.
+    }
+
     func testFieldAnswersSurviveNavigationRestartAndHistoryPreview() async throws {
         let root = try temporaryDirectory()
         let store = try HistoryStore(accountID: "demonstration", baseURL: root)

@@ -1,6 +1,7 @@
 import Foundation
 import CryptoKit
 import SQLite3
+import OSLog
 
 public struct HistoryEntry: Codable, Identifiable, Equatable, Sendable {
     public var id: UUID
@@ -35,6 +36,7 @@ public enum HistoryStoreError: LocalizedError {
 /// One SQLite file per stable provider/account identity. No credentials are accepted by this type.
 public final class HistoryStore: @unchecked Sendable {
     public static let schemaVersion = 1
+    private static let log = Logger(subsystem: "at.klar.promptcoach", category: "history-storage")
     public let databaseURL: URL
     private var database: OpaquePointer?
     private let lock = NSLock()
@@ -125,7 +127,11 @@ public final class HistoryStore: @unchecked Sendable {
                 try execute("DELETE FROM metadata")
                 try execute("COMMIT")
             } catch { try? execute("ROLLBACK"); throw error }
-            try execute("VACUUM")
+            // Deletion is already committed, with secure_delete enabled. Compaction is
+            // optional maintenance: reporting it as a failed deletion can resurrect
+            // the caller's pending entries on its next save.
+            do { try execute("VACUUM") }
+            catch { Self.log.warning("history_compaction_failed_after_delete") }
         }
     }
 
