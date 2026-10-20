@@ -118,11 +118,24 @@ export class BugInbox {
         if (saved?.creating) {
           stage = 'github_reconciliation';
           // A timeout after POST may still have created an issue. Reconcile; never blindly POST again.
-          const issues = await this.github(`/issues?state=all&sort=created&direction=asc&per_page=100&since=${encodeURIComponent(saved.creating)}`);
-          const existing = issues.find(issue => !issue.pull_request && issue.body?.includes(`<!-- sinnfaden:${key} -->`));
-          if (!existing) return reply(503, { accepted: false }, 3600);
-          await this.state.storage.put(key, { number: existing.number });
-          return reply(200, { accepted: true });
+          let page = Number.isSafeInteger(saved.nextPage) && saved.nextPage > 0 ? saved.nextPage : 1;
+          // Bound each attempt to two pages (plus the repository read), then resume later.
+          // Persist progress before another fetch so interruption cannot restart the whole scan.
+          for (let scanned = 0; scanned < 2; scanned++, page++) {
+            const issues = await this.github(`/issues?state=all&sort=created&direction=asc&per_page=100&page=${page}&since=${encodeURIComponent(saved.creating)}`);
+            if (!Array.isArray(issues)) throw new Error('github_unavailable');
+            const existing = issues.find(issue => Number.isSafeInteger(issue?.number) && issue.number > 0 &&
+              !issue.pull_request && typeof issue.body === 'string' && issue.body.includes(`<!-- sinnfaden:${key} -->`));
+            if (existing) {
+              await this.state.storage.put(key, { number: existing.number });
+              return reply(200, { accepted: true });
+            }
+            const finished = issues.length < 100;
+            await this.state.storage.put(key, { creating: saved.creating, nextPage: finished ? 1 : page + 1 });
+            // A new sweep on a later retry covers delayed visibility and changes between pages.
+            if (finished) break;
+          }
+          return reply(503, { accepted: false }, 3600);
         }
         const date = new Date().toISOString().slice(0, 10);
         stage = 'inbox_quota';

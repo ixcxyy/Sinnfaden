@@ -91,6 +91,84 @@ test('unknown POST outcome without reconciliation does not create another issue'
   assert.equal(posts, 1);
 });
 
+test('unknown issue creation recovers beyond the first page without posting again', async t => {
+  const storage = state(); let posts = 0; let savedBody; const pages = [];
+  t.mock.method(console, 'error', () => {});
+  t.mock.method(globalThis, 'fetch', async (url, init) => {
+    if (init.method === 'POST') { posts++; savedBody = JSON.parse(init.body).body; throw new Error('unknown outcome'); }
+    if (!url.includes('/issues?')) return Response.json({ private: true });
+    const query = new URL(url).searchParams;
+    const page = Number(query.get('page') ?? 1); pages.push(page);
+    assert.equal(query.get('per_page'), '100'); assert.equal(query.get('state'), 'all');
+    return Response.json(page === 1
+      ? Array.from({ length: 100 }, (_, index) => ({ number: index + 1, body: 'Unrelated issue' }))
+      : [{ number: 151, body: savedBody }]);
+  });
+  assert.equal((await new BugInbox(storage, env).fetch(request())).status, 503);
+  assert.equal((await new BugInbox(storage, env).fetch(request())).status, 200);
+  assert.deepEqual(pages, [1, 2]);
+  assert.equal(posts, 1);
+  assert.deepEqual(storage.data.get(await fingerprint(report)), { number: 151 });
+});
+
+test('recovery scans at most two pages per request and resumes after restart', async t => {
+  const storage = state(); const key = await fingerprint(report);
+  const creating = '2026-10-19T20:00:00.000Z';
+  storage.data.set(key, { creating });
+  const pages = []; let posts = 0;
+  t.mock.method(globalThis, 'fetch', async (url, init) => {
+    if (init.method === 'POST') { posts++; throw new Error('Unexpected duplicate creation'); }
+    if (!url.includes('/issues?')) return Response.json({ private: true });
+    const query = new URL(url).searchParams;
+    assert.equal(query.get('since'), creating);
+    const page = Number(query.get('page') ?? 1); pages.push(page);
+    return Response.json(page < 3
+      ? Array.from({ length: 100 }, (_, index) => ({ number: (page - 1) * 100 + index + 1 }))
+      : [{ number: 251, body: `<!-- sinnfaden:${key} -->` }]);
+  });
+  assert.equal((await new BugInbox(storage, env).fetch(request())).status, 503);
+  assert.deepEqual(pages, [1, 2]);
+  assert.deepEqual(storage.data.get(key), { creating, nextPage: 3 });
+  assert.equal((await new BugInbox(storage, env).fetch(request())).status, 200);
+  assert.deepEqual(pages, [1, 2, 3]); assert.equal(posts, 0);
+});
+
+test('exhausted recovery restarts its scan and never accepts a matching pull request', async t => {
+  const storage = state(); const key = await fingerprint(report);
+  const creating = '2026-10-19T20:00:00.000Z';
+  storage.data.set(key, { creating, nextPage: 4 });
+  const pages = [];
+  t.mock.method(globalThis, 'fetch', async (url, init) => {
+    assert.notEqual(init.method, 'POST');
+    if (!url.includes('/issues?')) return Response.json({ private: true });
+    pages.push(Number(new URL(url).searchParams.get('page') ?? 1));
+    return Response.json([{ number: 52, pull_request: {}, body: `<!-- sinnfaden:${key} -->` }]);
+  });
+  assert.equal((await new BugInbox(storage, env).fetch(request())).status, 503);
+  assert.deepEqual(pages, [4]);
+  assert.deepEqual(storage.data.get(key), { creating, nextPage: 1 });
+});
+
+test('a failed later page preserves completed recovery progress', async t => {
+  const storage = state(); const key = await fingerprint(report);
+  const creating = '2026-10-19T20:00:00.000Z'; storage.data.set(key, { creating });
+  const pages = []; let unavailable = true;
+  t.mock.method(console, 'error', () => {});
+  t.mock.method(globalThis, 'fetch', async (url, init) => {
+    assert.notEqual(init.method, 'POST');
+    if (!url.includes('/issues?')) return Response.json({ private: true });
+    const page = Number(new URL(url).searchParams.get('page')); pages.push(page);
+    if (page === 1) return Response.json(Array.from({ length: 100 }, (_, index) => ({ number: index + 1 })));
+    if (unavailable) return Response.json({}, { status: 503 });
+    return Response.json([{ number: 151, body: `<!-- sinnfaden:${key} -->` }]);
+  });
+  assert.equal((await new BugInbox(storage, env).fetch(request())).status, 503);
+  assert.deepEqual(storage.data.get(key), { creating, nextPage: 2 });
+  unavailable = false;
+  assert.equal((await new BugInbox(storage, env).fetch(request())).status, 200);
+  assert.deepEqual(pages, [1, 2, 2]);
+});
+
 test('daily issue cap bounds public-ingestion abuse', async t => {
   const storage = state(); let posts = 0;
   t.mock.method(globalThis, 'fetch', async (_, init) => {
