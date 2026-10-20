@@ -178,7 +178,88 @@ final class ProviderTests: XCTestCase {
         do { _ = try await task.value; XCTFail("A cancelled final delivery must not report success.") }
         catch { XCTAssertTrue(error is CancellationError) }
     }
+
+    func testConnectionResponseLimitStopsDownloadBeforeAnOversizedBodyFinishes() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OversizedOpenResponseProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let transport = OpenAITransport(session: session)
+        let operation = Task {
+            try await transport.data(URLRequest(url: URL(string: "https://synthetic.invalid/catalog")!))
+        }
+        let deadline = Task {
+            try await Task.sleep(for: .seconds(3))
+            operation.cancel()
+        }
+        defer { deadline.cancel() }
+        do {
+            _ = try await operation.value
+            XCTFail("An oversized body must not be returned")
+        } catch {
+            XCTAssertEqual((error as? ProviderFailure)?.kind, .invalidResponse,
+                           "The size limit must reject an open response without waiting for cancellation or EOF")
+        }
+        let tasks = await withCheckedContinuation { continuation in
+            session.getAllTasks { continuation.resume(returning: $0) }
+        }
+        XCTAssertFalse(tasks.contains { $0.state == .running || $0.state == .suspended })
+    }
+
+    func testConnectionResponseAcceptsTheExactSizeBoundary() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [OversizedOpenResponseProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let result = try await OpenAITransport(session: session).data(URLRequest(url: URL(string: "https://synthetic.invalid/boundary")!))
+        XCTAssertEqual(result, Data(repeating: 32, count: 2_000_000))
+    }
+
+    func testBoundedConnectionResponsePreservesEmptySuccessAndStructuredFailure() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CompletedConnectionResponseProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let transport = OpenAITransport(session: session)
+        let empty = try await transport.data(URLRequest(url: URL(string: "https://synthetic.invalid/empty")!))
+        XCTAssertTrue(empty.isEmpty, "Successful revocation may have no response body")
+        do {
+            _ = try await transport.data(URLRequest(url: URL(string: "https://synthetic.invalid/error")!))
+            XCTFail("An HTTP error must not be returned as successful data")
+        } catch {
+            let failure = try XCTUnwrap(error as? ProviderFailure)
+            XCTAssertEqual(failure.kind, .authentication)
+            XCTAssertEqual(failure.status, 401)
+            XCTAssertEqual(failure.code, "invalid_api_key")
+            XCTAssertEqual(failure.requestID, "synthetic-request")
+        }
+    }
     private func event(_ json: String, into parser: inout ResponsesStreamParser) throws { try parser.consume(line: "data: " + json); try parser.consume(line: "") }
+}
+
+private final class CompletedConnectionResponseProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        let isEmpty = request.url?.lastPathComponent == "empty"
+        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: isEmpty ? 204 : 401, httpVersion: "HTTP/1.1", headerFields: ["x-request-id": "synthetic-request"])!, cacheStoragePolicy: .notAllowed)
+        if !isEmpty { client?.urlProtocol(self, didLoad: Data(#"{"error":{"code":"invalid_api_key","message":"synthetic"}}"#.utf8)) }
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
+private final class OversizedOpenResponseProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "application/json"])!, cacheStoragePolicy: .notAllowed)
+        let isBoundary = request.url?.lastPathComponent == "boundary"
+        client?.urlProtocol(self, didLoad: Data(repeating: 32, count: isBoundary ? 2_000_000 : 2_000_001))
+        if isBoundary { client?.urlProtocolDidFinishLoading(self) }
+        // Deliberately leave the response open after crossing the supported body size.
+    }
+    override func stopLoading() {}
 }
 
 private class SyntheticSSEProtocol: URLProtocol {

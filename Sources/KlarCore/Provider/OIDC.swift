@@ -97,9 +97,18 @@ struct OpenAITransport {
         return try JSONDecoder().decode(type, from: data)
     }
     func data(_ request: URLRequest) async throws -> Data {
-        let (data, response) = try await session.data(for: request)
         try Task.checkCancellation()
-        guard let http = response as? HTTPURLResponse, data.count <= 2_000_000 else { throw ProviderFailure(.invalidResponse, "OpenAI hat eine unerwartete Antwort gesendet.") }
+        let (bytes, response) = try await session.bytes(for: request)
+        defer { bytes.task.cancel() }
+        guard let http = response as? HTTPURLResponse else { throw ProviderFailure(.invalidResponse, "OpenAI hat eine unerwartete Antwort gesendet.") }
+        // Enforce the bound while downloading, including responses with no Content-Length.
+        // Waiting for EOF first lets a large or never-ending body bypass the memory limit.
+        var data = Data()
+        for try await byte in bytes {
+            guard data.count < 2_000_000 else { throw ProviderFailure(.invalidResponse, "OpenAI hat eine unerwartete Antwort gesendet.") }
+            data.append(byte)
+        }
+        try Task.checkCancellation()
         guard (200..<300).contains(http.statusCode) else { throw ProviderFailure.http(http.statusCode, body: data, requestID: http.value(forHTTPHeaderField: "x-request-id") ?? http.value(forHTTPHeaderField: "openai-request-id")) }
         return data
     }
