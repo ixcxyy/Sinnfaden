@@ -106,7 +106,7 @@ public enum LessonCatalog {
                 + "|\\b" + correction + "\\s+(?:das|dies)\\s*(?:bitte\\s*)?(?=[.!?;\\n]|$)"
                 + "|^\\s*(?:bitte\\s+)?" + correction + "\\s*(?:bitte\\s*)?(?=[.!?;\\n]|$)"
                 + "|\\bdienstag\\s+statt\\s+mittwoch\\b")
-            let wrongDirection = matches("\\b" + correction + "\\b[^.!?\\n]{0,100}\\b(?:auf|zu|in|durch)\\s+(?:den\\s+)?mittwoch\\b|\\bdienstag\\s+(?:auf|zu|in|durch)\\s+(?:den\\s+)?mittwoch\\b|\\bmittwoch\\s+statt\\s+dienstag\\b")
+            let wrongDirection = matches("\\b" + correction + "\\b[^.!?\\n]{0,100}\\b(?:auf|zu|in|durch|mit|gegen)\\s+(?:den\\s+)?mittwoch\\b|\\bdienstag\\s+(?:auf|zu|in|durch|mit|gegen)\\s+(?:den\\s+)?mittwoch\\b|\\bmittwoch\\s+statt\\s+dienstag\\b")
                 || matches("\\bmittwoch\\s+(?:ist|war)\\s+(?:der\\s+)?(?:richtig|korrekt)\\b|\\bdienstag\\s+(?:ist|war)\\s+(?:der\\s+)?(?:falsch|fehlerhaft)\\b")
             let refusesCorrection = matches("\\b" + correction + "\\s+(?:bitte\\s+)?nicht\\s+(?:(?:den|das)\\s+)?(?:tag|wochentag|dienstag|mittwoch)\\b|\\bnicht\\s+" + correction + "\\b")
             let changesTime = explicitTimes(in: lower).contains { $0.hour != 16 || $0.minute != 0 }
@@ -183,12 +183,17 @@ public enum LessonCatalog {
     }
 
     private static func explicitTimes(in text: String) -> [(hour: Int, minute: Int)] {
-        let expression = try! NSRegularExpression(pattern: "\\b([0-9]{1,2})(?::([0-9]{2}))?\\s*uhr\\b")
+        // Colon times need no “Uhr”; dotted times do, so a date such as 16.10.
+        // is not mistaken for a clock time. Preserve minutes in “16 Uhr 30” too.
+        let expression = try! NSRegularExpression(pattern: "\\b([0-9]{1,2})(?::([0-9]{2})\\b(?:\\s*uhr\\b)?|\\.([0-9]{2})\\s*uhr\\b|\\s*uhr\\b(?:\\s+([0-9]{2})\\b)?)")
         let source = text as NSString
         return expression.matches(in: text, range: NSRange(location: 0, length: source.length)).compactMap { match in
             guard let hour = Int(source.substring(with: match.range(at: 1))) else { return nil }
-            let minutes = match.range(at: 2)
-            return (hour, minutes.location == NSNotFound ? 0 : Int(source.substring(with: minutes)) ?? 0)
+            let minute = (2..<match.numberOfRanges).compactMap { index -> Int? in
+                let range = match.range(at: index)
+                return range.location == NSNotFound ? nil : Int(source.substring(with: range))
+            }.first ?? 0
+            return (hour, minute)
         }
     }
 }

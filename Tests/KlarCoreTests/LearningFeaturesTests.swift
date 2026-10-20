@@ -197,6 +197,75 @@ final class LearningFeaturesTests: XCTestCase {
         }
     }
 
+    func testCheckingLessonRecognizesClockTimesWithoutUhr() throws {
+        let lesson = try XCTUnwrap(LessonCatalog.lookup("check"))
+        for time in ["16:30", "17:00", "16.30 Uhr", "16 Uhr 30"] {
+            let answer = "Bitte korrigiere Mittwoch auf Dienstag um \(time)."
+            let feedback = LessonCatalog.evaluate(answer: answer, lesson: lesson)
+            XCTAssertFalse(feedback.meetsExercise, answer)
+            XCTAssertFalse(feedback.independentApplication, answer)
+            XCTAssertTrue(feedback.observation.contains("Uhrzeit"), answer)
+        }
+        for time in ["16:00", "16:00 Uhr", "16.00 Uhr", "16 Uhr", "16 Uhr 00"] {
+            let answer = "Bitte korrigiere Mittwoch auf Dienstag um \(time)."
+            XCTAssertTrue(LessonCatalog.evaluate(answer: answer, lesson: lesson).meetsExercise, answer)
+        }
+        XCTAssertTrue(LessonCatalog.evaluate(
+            answer: "In meiner Anfrage vom 16.10. steht Dienstag, in der Antwort Mittwoch. Bitte korrigiere den Tag; 16 Uhr bleibt.",
+            lesson: lesson
+        ).meetsExercise)
+    }
+
+    func testCheckingLessonDoesNotAcceptReversingDaysWithMit() throws {
+        let lesson = try XCTUnwrap(LessonCatalog.lookup("check"))
+        for answer in [
+            "Bitte ersetze Dienstag mit Mittwoch; 16 Uhr bleibt.",
+            "Bitte tausche Dienstag gegen Mittwoch aus; 16 Uhr bleibt. Korrigiere den Tag."
+        ] {
+            let feedback = LessonCatalog.evaluate(answer: answer, lesson: lesson)
+            XCTAssertFalse(feedback.meetsExercise, answer)
+            XCTAssertFalse(feedback.independentApplication, answer)
+            XCTAssertTrue(feedback.observation.contains("Korrekturrichtung"), answer)
+        }
+        XCTAssertTrue(LessonCatalog.evaluate(
+            answer: "Bitte ersetze Mittwoch mit Dienstag; 16 Uhr bleibt.", lesson: lesson
+        ).meetsExercise)
+    }
+
+    func testStoredCheckingFeedbackIsRefreshedWithoutLosingAttempts() throws {
+        let store = try LearningStore(accountID: "feedback-regression", baseURL: temporaryDirectory())
+        let stale = LessonFeedback(observation: "Das passt zur Aufgabe.", independentApplication: true, meetsExercise: true)
+        let date = Date(timeIntervalSince1970: 1_792_512_000)
+        let attempts = [
+            LessonAttempt(createdAt: date, lessonID: "check", answer: "Bitte korrigiere Mittwoch auf Dienstag um 16:30.", feedback: stale),
+            LessonAttempt(createdAt: date, lessonID: "check", answer: "Bitte ersetze Dienstag mit Mittwoch; 16 Uhr bleibt.", feedback: stale),
+            LessonAttempt(createdAt: date, lessonID: "check", answer: "Bitte ersetze Mittwoch durch Dienstag; 16 Uhr bleibt.", feedback: stale, usedHint: true),
+            LessonAttempt(createdAt: date, lessonID: "future-lesson", answer: "Unverändert behalten", feedback: stale),
+            LessonAttempt(createdAt: date, lessonID: "check", answer: "Bitte Dienstag statt Mittwoch schreiben; 16 Uhr bleibt.", feedback: stale, revealedSolution: true)
+        ]
+        let initial = LearningState(lessonAttempts: attempts, lessonDrafts: ["check": "Mein offener Entwurf"])
+        try store.save(initial)
+        let bytes = try Data(contentsOf: store.fileURL)
+        let restored = try store.load()
+        XCTAssertEqual(restored.lessonAttempts.map(\.id), attempts.map(\.id))
+        XCTAssertEqual(restored.lessonAttempts.map(\.answer), attempts.map(\.answer))
+        XCTAssertEqual(restored.lessonAttempts.map(\.createdAt), attempts.map(\.createdAt))
+        XCTAssertEqual(restored.lessonDrafts, initial.lessonDrafts)
+        XCTAssertFalse(restored.lessonAttempts[0].feedback.meetsExercise)
+        XCTAssertFalse(restored.lessonAttempts[1].feedback.meetsExercise)
+        XCTAssertTrue(restored.lessonAttempts[2].feedback.meetsExercise)
+        XCTAssertTrue(restored.lessonAttempts[2].usedHint)
+        XCTAssertFalse(restored.lessonAttempts[2].feedback.independentApplication)
+        XCTAssertEqual(restored.lessonAttempts[3], attempts[3])
+        XCTAssertTrue(restored.lessonAttempts[4].revealedSolution)
+        XCTAssertTrue(restored.lessonAttempts[4].feedback.meetsExercise)
+        XCTAssertFalse(restored.lessonAttempts[4].feedback.independentApplication)
+        XCTAssertEqual(LessonCatalog.stage(for: restored.lessonAttempts, lessonID: "check"), .guided)
+        XCTAssertEqual(try Data(contentsOf: store.fileURL), bytes, "Reading must not rewrite the original file")
+        try store.save(restored)
+        XCTAssertEqual(try store.load(), restored)
+    }
+
     func testLessonsDoNotCountNegatedRequestsAsLearningEvidence() throws {
         let cases: [(String, String)] = [
             ("goal", "Bitte keine Einladung und keine Absage."),

@@ -172,6 +172,21 @@ public final class LearningStore: @unchecked Sendable {
             var state = try decoder.decode(LearningState.self, from: data)
             try validate(state)
             for index in state.comparisons.indices { state.comparisons[index].markInterruptedAfterRestart() }
+            // This fixed exercise has not changed, but older graders accepted wrong
+            // clock times and reversed corrections. Refresh derived feedback only;
+            // preserve answers, identity, dates and help provenance, without writing on read.
+            if let lesson = LessonCatalog.lookup("check") {
+                state.lessonAttempts = state.lessonAttempts.map { attempt in
+                    guard attempt.lessonID == lesson.id else { return attempt }
+                    return LessonAttempt(
+                        id: attempt.id, createdAt: attempt.createdAt, lessonID: attempt.lessonID,
+                        answer: attempt.answer,
+                        feedback: LessonCatalog.evaluate(answer: attempt.answer, lesson: lesson,
+                                                         usedHint: attempt.usedHint, revealedSolution: attempt.revealedSolution),
+                        usedHint: attempt.usedHint, revealedSolution: attempt.revealedSolution
+                    )
+                }
+            }
             return state
         } catch let error as LearningDataError { throw error }
         catch { throw LearningDataError.unavailable }
