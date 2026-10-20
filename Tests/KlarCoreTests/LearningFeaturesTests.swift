@@ -170,6 +170,33 @@ final class LearningFeaturesTests: XCTestCase {
         }
     }
 
+    func testCheckingLessonRequiresARequestToCorrectTheActualDay() throws {
+        let lesson = try XCTUnwrap(LessonCatalog.lookup("check"))
+        for answer in [
+            "Bitte erkläre den Unterschied zwischen Dienstag und Mittwoch.",
+            "Dienstag steht in der Anfrage, Mittwoch in der Antwort. Bitte freundlich schreiben.",
+            "Bitte ergänze Dienstag und Mittwoch als zwei mögliche Termine.",
+            "Dienstag steht in der Anfrage, Mittwoch in der Antwort. Bitte ändere die Schriftfarbe.",
+            "Dienstag steht in der Anfrage, Mittwoch in der Antwort. Bitte ändere das Format.",
+            "Dienstag steht in der Anfrage, Mittwoch in der Antwort. Bitte die Schriftfarbe korrigieren.",
+            "Bitte ersetze Dienstag durch Mittwoch; 16 Uhr bleibt."
+        ] {
+            let feedback = LessonCatalog.evaluate(answer: answer, lesson: lesson)
+            XCTAssertFalse(feedback.meetsExercise, answer)
+            XCTAssertFalse(feedback.independentApplication, answer)
+        }
+        for answer in [
+            "Bitte ersetze Mittwoch durch Dienstag; 16 Uhr bleibt.",
+            "In der Anfrage steht Dienstag, in der Antwort Mittwoch. Den Wochentag bitte korrigieren.",
+            "Dienstag statt Mittwoch schreiben und 16 Uhr beibehalten.",
+            "In der Anfrage steht Dienstag, in der Antwort Mittwoch. Bitte korrigiere.",
+            "In der Anfrage steht Dienstag, in der Antwort Mittwoch. Das bitte korrigieren.",
+            lesson.solution
+        ] {
+            XCTAssertTrue(LessonCatalog.evaluate(answer: answer, lesson: lesson).meetsExercise, answer)
+        }
+    }
+
     func testLessonsDoNotCountNegatedRequestsAsLearningEvidence() throws {
         let cases: [(String, String)] = [
             ("goal", "Bitte keine Einladung und keine Absage."),

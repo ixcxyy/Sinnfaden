@@ -95,16 +95,26 @@ public enum LessonCatalog {
             matchesTask = request && affirmed("\\b(beispiel|konkret[eernms]*|schritt[eens]*|heute|anfangen|beginnen)\\b")
             detail = "Du fragst nach einem Beispiel oder einer konkreten Handlung. Prüfe, ob die Rückfrage genau die zu allgemeine Antwort weiterführt."
         case "check":
-            let identifies = lower.contains("dienstag") && lower.contains("mittwoch")
-            let correction = "(?:korrigiere[n]?|berichtige[n]?|ändere|ändern)"
-            let wrongDirection = matches("\\b" + correction + "\\b[^.!?\\n]{0,100}\\b(?:auf|zu|in)\\s+(?:den\\s+)?mittwoch\\b|\\bdienstag\\s+(?:auf|zu|in)\\s+(?:den\\s+)?mittwoch\\b|\\bmittwoch\\s+statt\\s+dienstag\\b")
+            let identifies = matches("\\bdienstag\\b") && matches("\\bmittwoch\\b")
+            let correction = "(?:korrigiere[n]?|berichtige[n]?|ändere|ändern|ersetze[n]?)"
+            // Mentioning both days and saying “please” is not yet a request to fix the error.
+            // Accept an explicit day target, a reference to the described error, or a bare
+            // correction request after the discrepancy; unrelated targets do not qualify.
+            let target = "(?:(?:den|das|diesen|diese|die)\\s+)?(?:tag|wochentag|dienstag|mittwoch|fehler)"
+            let asksForCorrection = affirmed("\\b" + correction + "\\s+(?:bitte\\s+)?" + target + "\\b"
+                + "|\\b(?:" + target + "|das|dies)\\s+(?:bitte\\s+)?" + correction + "\\b"
+                + "|\\b" + correction + "\\s+(?:das|dies)\\s*(?:bitte\\s*)?(?=[.!?;\\n]|$)"
+                + "|^\\s*(?:bitte\\s+)?" + correction + "\\s*(?:bitte\\s*)?(?=[.!?;\\n]|$)"
+                + "|\\bdienstag\\s+statt\\s+mittwoch\\b")
+            let wrongDirection = matches("\\b" + correction + "\\b[^.!?\\n]{0,100}\\b(?:auf|zu|in|durch)\\s+(?:den\\s+)?mittwoch\\b|\\bdienstag\\s+(?:auf|zu|in|durch)\\s+(?:den\\s+)?mittwoch\\b|\\bmittwoch\\s+statt\\s+dienstag\\b")
                 || matches("\\bmittwoch\\s+(?:ist|war)\\s+(?:der\\s+)?(?:richtig|korrekt)\\b|\\bdienstag\\s+(?:ist|war)\\s+(?:der\\s+)?(?:falsch|fehlerhaft)\\b")
             let refusesCorrection = matches("\\b" + correction + "\\s+(?:bitte\\s+)?nicht\\s+(?:(?:den|das)\\s+)?(?:tag|wochentag|dienstag|mittwoch)\\b|\\bnicht\\s+" + correction + "\\b")
             let changesTime = explicitTimes(in: lower).contains { $0.hour != 16 || $0.minute != 0 }
-            matchesTask = identifies && !wrongDirection && !refusesCorrection && !changesTime && matches("\\b(korrigiere|korrigieren|berichtige|ändern|ändere|bitte)\\b")
+            matchesTask = identifies && asksForCorrection && !wrongDirection && !refusesCorrection && !changesTime
             if wrongDirection { missingDetail = "Die Korrekturrichtung stimmt noch nicht: In der Anfrage steht Dienstag. Mittwoch ist die Abweichung in der Antwort." }
             else if changesTime { missingDetail = "Die Uhrzeit ist bereits richtig: 16 Uhr. Korrigiere nur den abweichenden Tag, ohne eine neue Uhrzeit einzuführen." }
             else if refusesCorrection { missingDetail = "Die Formulierung schließt die Korrektur des Tags aus. Bitte gezielt darum, Mittwoch durch Dienstag zu ersetzen." }
+            else if !asksForCorrection { missingDetail = "Die gezielte Korrektur des falschen Wochentags ist noch nicht eindeutig. Nur beide Tage zu erwähnen oder etwas anderes zu ändern reicht dafür noch nicht. Benenne die Abweichung und bitte darum, genau diese zu korrigieren." }
             detail = "Du benennst die Abweichung beim Tag und bittest um Korrektur. Die Uhrzeit 16 Uhr kann dabei unverändert bleiben."
         default:
             return LessonFeedback(observation: "Diese Übung wird von der lokalen Prüfung noch nicht unterstützt. Deine Eingabe bleibt erhalten.", independentApplication: false)
