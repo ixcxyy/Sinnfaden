@@ -185,7 +185,9 @@ public enum CoachSanitizer {
             input.label = trimmed(input.label, limit: 80)
             input.why = trimmed(input.why, limit: 240)
             if !CoachValidator.nonempty(input.why) { input.why = "Damit die KI nicht nachfragen muss." }
-            input.options = Array(input.options.map { trimmed($0, limit: 60) }.filter(CoachValidator.nonempty).prefix(8))
+            var seenOptions = Set<String>()
+            input.options = Array(input.options.map { trimmed($0, limit: 60) }
+                .filter { CoachValidator.nonempty($0) && seenOptions.insert($0).inserted }.prefix(8))
             if [.choice, .multi_choice, .scale].contains(input.kind) && input.options.count < 2 { input.kind = .text; input.options = [] }
             if let suggestion = input.suggestion { input.suggestion = CoachValidator.nonempty(suggestion) ? trimmed(suggestion, limit: 400) : nil }
             guard !ids.contains(input.id), !placeholders.contains(input.placeholder),

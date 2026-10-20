@@ -28,7 +28,8 @@ struct PromptInputsForm: View {
                 }
             }
             ForEach(Array(inputs.enumerated()), id: \.element.id) { index, input in
-                InputFieldRow(input: input, value: binding(for: input))
+                InputFieldRow(input: input, value: binding(for: input), selectedOptions: model.selectedOptions(for: input),
+                              toggleOption: { model.toggleOption($0, for: input) })
                     .opacity(built ? 1 : 0)
                     .offset(y: built || reduceMotion ? 0 : 14)
                     .blur(radius: built || reduceMotion ? 0 : 8)
@@ -72,8 +73,11 @@ private struct ProgressRing: View {
 private struct InputFieldRow: View {
     let input: PromptInput
     @Binding var value: String
+    let selectedOptions: Set<String>?
+    var toggleOption: (String) -> Void
     @State private var date = Date()
     @FocusState private var editingDateText: Bool
+    @FocusState private var editingChoiceText: Bool
 
     private var filled: Bool { !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     private var hint: String { input.placeholder.trimmingCharacters(in: CharacterSet(charactersIn: "[]")) }
@@ -110,10 +114,11 @@ private struct InputFieldRow: View {
                 value = value == option ? "" : option
             }
         case .multi_choice:
-            let selected = Set(value.components(separatedBy: " oder ").filter { !$0.isEmpty })
-            ChipFlow(options: input.options, selected: selected, multiple: true) { option in
-                let next = input.options.filter { $0 == option ? !selected.contains($0) : selected.contains($0) }
-                value = next.joined(separator: " oder ")
+            if let selectedOptions, !editingChoiceText {
+                ChipFlow(options: input.options, selected: selectedOptions, multiple: true, toggle: toggleOption)
+            } else {
+                TextField(hint, text: $value, axis: .vertical).textFieldStyle(SinnFieldStyle()).lineLimit(2...5)
+                    .focused($editingChoiceText)
             }
         case .scale:
             ScalePicker(options: input.options, value: $value)
@@ -143,7 +148,7 @@ private struct ChipFlow: View {
     let toggle: (String) -> Void
     var body: some View {
         FlowLayout(spacing: 8) {
-            ForEach(options, id: \.self) { option in
+            ForEach(PromptChoiceInput.uniqueOptions(options), id: \.self) { option in
                 let isOn = selected.contains(option)
                 Button { withAnimation(.spring(response: 0.3, dampingFraction: 0.65)) { toggle(option) } } label: {
                     HStack(spacing: 6) {
@@ -175,7 +180,7 @@ private struct ScalePicker: View {
     @Namespace private var knob
     var body: some View {
         HStack(spacing: 0) {
-            ForEach(options, id: \.self) { option in
+            ForEach(PromptChoiceInput.uniqueOptions(options), id: \.self) { option in
                 Button { withAnimation(.spring(response: 0.38, dampingFraction: 0.72)) { value = option } } label: {
                     Text(option)
                         .font(.system(size: 13, weight: value == option ? .semibold : .medium))

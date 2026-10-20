@@ -280,6 +280,69 @@ final class AppModelPersistenceTests: XCTestCase {
         XCTAssertFalse(reopened.manuallyEdited)
     }
 
+    func testMultiChoiceLabelsSurviveTogglingAndRestartWithoutChangingPromptWording() async throws {
+        let root = try temporaryDirectory()
+        let input = PromptInput(id: "time", label: "Zeitraum", kind: .multi_choice, placeholder: "[Zeit]",
+                                options: ["vormittags oder nachmittags", "abends"], why: "Termin wählen.")
+        let response = CoachResponse(status: .improved, coachMessage: "", segments: [PromptSegment(id: "s1", text: "Treffen: [Zeit]")], inputs: [input])
+        let entry = HistoryEntry(original: "Termin planen", response: response, inputValues: [:])
+        let app = model(at: root)
+        app.select(entry)
+        app.toggleOption(input.options[0], for: input)
+        XCTAssertEqual(app.selectedOptions(for: input), Set([input.options[0]]))
+        app.toggleOption(input.options[1], for: input)
+        XCTAssertEqual(app.visiblePrompt, "Treffen: vormittags oder nachmittags oder abends")
+        XCTAssertEqual(app.selectedOptions(for: input), Set(input.options))
+
+        let reopened = model(at: root)
+        reopened.select(try XCTUnwrap(reopened.history.first { $0.id == entry.id }))
+        XCTAssertEqual(reopened.selectedOptions(for: input), Set(input.options))
+        reopened.toggleOption(input.options[0], for: input)
+        XCTAssertEqual(reopened.visiblePrompt, "Treffen: abends")
+        XCTAssertEqual(reopened.inputSelections[input.id], ["abends"])
+    }
+
+    func testIdenticalSentencesKeepDistinctSelectionsAcrossHistoryAndAccounts() async throws {
+        let root = try temporaryDirectory()
+        let input = PromptInput(id: "choice", label: "Auswahl", kind: .multi_choice, placeholder: "[Auswahl]",
+                                options: ["A", "B", "A oder B"], why: "Auswählen.")
+        let response = CoachResponse(status: .improved, coachMessage: "", segments: [PromptSegment(id: "s1", text: "[Auswahl]")], inputs: [input])
+        let first = HistoryEntry(original: "Erster Versuch", response: response, inputValues: [input.id: "A oder B"], inputSelections: [input.id: ["A", "B"]])
+        let second = HistoryEntry(original: "Zweiter Versuch", response: response, inputValues: [input.id: "A oder B"], inputSelections: [input.id: ["A oder B"]])
+        let store = try HistoryStore(accountID: "demonstration", baseURL: root)
+        try store.save(first); try store.save(second)
+        let app = model(at: root)
+        app.select(first)
+        XCTAssertEqual(app.selectedOptions(for: input), Set(["A", "B"]))
+        app.select(second)
+        XCTAssertEqual(app.selectedOptions(for: input), Set(["A oder B"]))
+        app.switchStorageAccount(to: "other")
+        XCTAssertTrue(app.inputSelections.isEmpty)
+        app.switchStorageAccount(to: "demonstration")
+        app.select(first)
+        XCTAssertEqual(app.selectedOptions(for: input), Set(["A", "B"]))
+        let export = try XCTUnwrap(JSONSerialization.jsonObject(with: app.historyExportData()) as? [String: Any])
+        let entries = try XCTUnwrap(export["entries"] as? [[String: Any]])
+        XCTAssertEqual(entries.first { $0["id"] as? String == second.id.uuidString }?["inputSelections"] as? [String: [String]], second.inputSelections)
+    }
+
+    func testTypingAReplacementDiscardsOldChoiceMetadataAndKeepsTheText() async throws {
+        let root = try temporaryDirectory()
+        let input = PromptInput(id: "choice", label: "Auswahl", kind: .multi_choice, placeholder: "[Auswahl]", options: ["A", "B"], why: "Auswählen.")
+        let response = CoachResponse(status: .improved, coachMessage: "", segments: [PromptSegment(id: "s1", text: "[Auswahl]")], inputs: [input])
+        let entry = HistoryEntry(original: "Auswahl", response: response, inputValues: [input.id: "A"], inputSelections: [input.id: ["A"]])
+        let app = model(at: root)
+        app.select(entry)
+        app.inputValues[input.id] = "Meine eigene Antwort"
+        XCTAssertNil(app.inputSelections[input.id])
+        XCTAssertNil(app.selectedOptions(for: input))
+        app.toggleOption("B", for: input)
+        XCTAssertEqual(app.visiblePrompt, "Meine eigene Antwort", "An unresolved value must not be discarded by a stale chip action")
+        let saved = try XCTUnwrap(HistoryStore(accountID: "demonstration", baseURL: root).entries().first { $0.id == entry.id })
+        XCTAssertEqual(saved.inputValues?[input.id], "Meine eigene Antwort")
+        XCTAssertNil(saved.inputSelections?[input.id])
+    }
+
     func testFieldChangeDoesNotOverwriteTypedTextBeforeEditNotificationArrives() async throws {
         let root = try temporaryDirectory()
         let app = model(at: root)

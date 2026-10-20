@@ -36,6 +36,28 @@ final class CoachSanitizerTests: XCTestCase {
         XCTAssertEqual(response.inputs.count, 1)
     }
 
+    func testChoiceOptionsAreUniqueAfterTrimming() throws {
+        var object = base
+        var inputs = try XCTUnwrap(object["inputs"] as? [[String: Any]])
+        inputs[0]["options"] = [" nächste Woche ", "nächste Woche", "übernächste Woche"]
+        object["inputs"] = inputs
+        let response = try CoachValidator.decode(CoachSanitizer.clean(try answer(object), original: original), original: original)
+        XCTAssertEqual(response.inputs.first?.options, ["nächste Woche", "übernächste Woche"])
+        var invalid = response
+        invalid.inputs[0].options = ["nächste Woche", "nächste Woche"]
+        XCTAssertThrowsError(try CoachValidator.validate(invalid, original: original))
+    }
+
+    func testDuplicateOnlyOptionsBecomeAnEditableField() throws {
+        var object = base
+        var inputs = try XCTUnwrap(object["inputs"] as? [[String: Any]])
+        inputs[0]["options"] = [" nächste Woche ", "nächste Woche"]
+        object["inputs"] = inputs
+        let response = try CoachValidator.decode(CoachSanitizer.clean(try answer(object), original: original), original: original)
+        XCTAssertEqual(response.inputs.first?.kind, .text)
+        XCTAssertEqual(response.inputs.first?.options, [])
+    }
+
     func testMalformedOptionalItemsDoNotDiscardAnOtherwiseUsablePrompt() throws {
         var object = base
         var changes = try XCTUnwrap(object["changes"] as? [[String: Any]])

@@ -281,7 +281,7 @@ public enum CoachValidator {
         try require(nonempty(input.why) && safeText(input.why, limit: 240), "Ein Feld braucht eine kurze Begründung.")
         try require(validPlaceholder(input.placeholder) && safeText(input.placeholder, limit: 80), "Ein Platzhalter muss eine benannte Angabe in eckigen Klammern sein.")
         try require(prompt.contains(input.placeholder), "Ein Eingabefeld verweist auf einen Platzhalter, der im Vorschlag fehlt.")
-        try require(input.options.count <= 8 && input.options.allSatisfy { nonempty($0) && safeText($0, limit: 60) }, "Die Auswahl eines Feldes ist ungültig.")
+        try require(input.options.count <= 8 && Set(input.options).count == input.options.count && input.options.allSatisfy { nonempty($0) && safeText($0, limit: 60) }, "Die Auswahl eines Feldes ist ungültig.")
         switch input.kind {
         case .choice, .multi_choice, .scale:
             try require(input.options.count >= 2, "Ein Auswahlfeld braucht mindestens zwei Optionen.")

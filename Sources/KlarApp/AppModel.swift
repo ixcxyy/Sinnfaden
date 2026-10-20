@@ -26,6 +26,9 @@ final class AppModel: ObservableObject {
     @Published var inputValues: [String: String] = [:] {
         didSet {
             guard !restoringInputValues, oldValue != inputValues else { return }
+            if !updatingInputSelections {
+                inputSelections = inputSelections.filter { oldValue[$0.key] == inputValues[$0.key] }
+            }
             copied = false
             // Keep an untouched editor in sync with the visible form. Comparing its
             // actual text also protects typing whose SwiftUI notification is still pending.
@@ -36,6 +39,7 @@ final class AppModel: ObservableObject {
             saveCurrent()
         }
     }
+    @Published private(set) var inputSelections: [String: [String]] = [:]
     /// The suggestion with every answered placeholder filled in.
     var displayedResponse: CoachResponse? { response.map { $0.filled(with: inputValues) } }
     var openRequiredInputs: [PromptInput] {
@@ -67,6 +71,7 @@ final class AppModel: ObservableObject {
     private let storageBaseURL: URL?
     private var loadingStore = false
     private var restoringInputValues = false
+    private var updatingInputSelections = false
     private var task: Task<Void, Never>?
     private var activeAttempt: UUID?
     private var currentEntry: HistoryEntry?
@@ -105,10 +110,29 @@ final class AppModel: ObservableObject {
     var visiblePrompt: String { manuallyEdited || editing ? editedPrompt : (displayedResponse?.prompt ?? "") }
     var canSubmit: Bool { !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && draft.utf16.count <= CoachValidator.maximumInputLength && !busy }
 
-    private func restoreInputValues(_ saved: [String: String]? = nil) {
+    private func restoreInputValues(_ saved: [String: String]? = nil, selections: [String: [String]]? = nil) {
         restoringInputValues = true
         defer { restoringInputValues = false }
         inputValues = saved ?? response?.suggestedInputValues ?? [:]
+        inputSelections = selections ?? [:]
+    }
+
+    func selectedOptions(for input: PromptInput) -> Set<String>? {
+        guard input.kind == .multi_choice else { return nil }
+        return PromptChoiceInput.selected(in: inputValues[input.id] ?? "", options: input.options, saved: inputSelections[input.id])
+    }
+
+    func toggleOption(_ option: String, for input: PromptInput) {
+        guard response?.inputs.contains(input) == true, input.kind == .multi_choice,
+              input.options.contains(option), var selected = selectedOptions(for: input) else { return }
+        if selected.contains(option) { selected.remove(option) } else { selected.insert(option) }
+        let ordered = input.options.filter { selected.contains($0) }
+        inputSelections[input.id] = ordered
+        updatingInputSelections = true
+        defer { updatingInputSelections = false }
+        let value = ordered.joined(separator: PromptChoiceInput.separator)
+        if inputValues[input.id] == value { saveCurrent() }
+        else { inputValues[input.id] = value }
     }
 
     private func synchronizeAccount() {
@@ -405,7 +429,7 @@ final class AppModel: ObservableObject {
         currentEntry = entry; draft = entry.original; submittedOriginal = entry.original
         response = entry.response
         // Equal responses can belong to different history entries with different answers.
-        restoreInputValues(entry.inputValues)
+        restoreInputValues(entry.inputValues, selections: entry.inputSelections)
         editedPrompt = entry.editedPrompt ?? displayedResponse?.prompt ?? ""
         manuallyEdited = entry.editedPrompt != nil; editing = false; copied = false; solutionRevealed = true
         showExercise = false; exerciseAnswer = ""; exerciseFeedback = ""
@@ -417,7 +441,10 @@ final class AppModel: ObservableObject {
     }
 
     func saveCurrent() {
-        if let response, currentEntry?.response == response { currentEntry?.inputValues = inputValues }
+        if let response, currentEntry?.response == response {
+            currentEntry?.inputValues = inputValues
+            currentEntry?.inputSelections = inputSelections
+        }
         guard let entry = currentEntry else { return }
         pendingEntries[observedAccount, default: [:]][entry.id] = entry
         // Retain edits even if SQLite fails, without decoding history on every keystroke.

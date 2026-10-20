@@ -11,12 +11,15 @@ public struct HistoryEntry: Codable, Identifiable, Equatable, Sendable {
     public var editedPrompt: String?
     /// Nil denotes an older entry; an empty dictionary preserves deliberately cleared suggestions.
     public var inputValues: [String: String]?
+    /// Exact multi-choice selections; the rendered sentence alone can be ambiguous.
+    public var inputSelections: [String: [String]]?
     public var outcome: String
     public var practiceAttempts: [PracticeAttempt]
-    public init(id: UUID = UUID(), createdAt: Date = Date(), original: String, response: CoachResponse? = nil, editedPrompt: String? = nil, inputValues: [String: String]? = nil, outcome: String = "completed", practiceAttempts: [PracticeAttempt] = []) {
+    public init(id: UUID = UUID(), createdAt: Date = Date(), original: String, response: CoachResponse? = nil, editedPrompt: String? = nil, inputValues: [String: String]? = nil, inputSelections: [String: [String]]? = nil, outcome: String = "completed", practiceAttempts: [PracticeAttempt] = []) {
         self.id = id; self.createdAt = createdAt; self.original = original; self.response = response
         self.editedPrompt = editedPrompt; self.outcome = outcome; self.practiceAttempts = practiceAttempts
         self.inputValues = inputValues
+        self.inputSelections = inputSelections
     }
     public var visiblePrompt: String { editedPrompt ?? response.map { $0.filled(with: inputValues ?? $0.suggestedInputValues).prompt } ?? "" }
     public var annotationsAreCurrent: Bool { editedPrompt == nil }
