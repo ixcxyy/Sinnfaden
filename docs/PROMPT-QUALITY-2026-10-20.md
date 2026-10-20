@@ -35,4 +35,6 @@ The time check now recognizes colon times, dotted times with “Uhr”, and minu
 - In the rebuilt native app, both incorrect answers now show “Noch nicht ganz” with the relevant correction. “Bitte ersetze Mittwoch mit Dienstag; 16.00 Uhr bleibt.” receives the correct positive feedback.
 - Manual diff review checked preservation of answers and help provenance, time/date boundaries, positive controls, and unchanged UI files. The local graph was refreshed.
 
-Local evidence is under `Artifacts/prompt-quality/`: live scenario text, `wrong-time-feedback-before.txt`, `wrong-day-feedback-before.txt`, corresponding after files, `correct-feedback-after.txt`, regression failure logs, `tests-after.log`, `relay-tests.log`, `release-tests.log` and `build.log`. The prepared patch is 0.4.5/build 10; publication and installation status are recorded separately when verified.
+Local evidence is under `Artifacts/prompt-quality/`: live scenario text, `wrong-time-feedback-before.txt`, `wrong-day-feedback-before.txt`, corresponding after files, `correct-feedback-after.txt`, regression failure logs, `tests-after.log`, `relay-tests.log`, `release-tests.log` and `build.log`.
+
+The fixes were pushed as `7ef9b36`. **0.4.5/build 10 is installed and published**, after a successful separate-copy update. The actual saved incorrect attempts now show corrected feedback in the Applications copy, with its existing ChatGPT connection restored. See [release verification](RELEASE-0.4.5.md).

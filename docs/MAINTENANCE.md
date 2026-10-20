@@ -1,8 +1,8 @@
 # Bug reports and app updates
 
-Implemented on 19 October 2026. Current published package: **Sinnfaden 0.4.4, build 9** (20 October).
+Implemented on 19 October 2026. Current published package: **Sinnfaden 0.4.5, build 10** (20 October).
 
-The prompt-visibility fix is installed, live-tested and published as **0.4.4/build 9**, with 201 passing automated tests. A separate build-8 copy successfully updated to the exact signed build-9 archive. The Applications copy restored its saved account and immediately displayed a real generated prompt. See [build-9 verification](RELEASE-0.4.4.md).
+The teaching-feedback fix is installed and published as **0.4.5/build 10**, with 204 passing automated tests. A separate build-9 copy successfully updated to the exact signed build-10 archive. The Applications copy restored its saved account and refreshed previously incorrect lesson feedback. See [build-10 verification](RELEASE-0.4.5.md) and the [prompt-quality review](PROMPT-QUALITY-2026-10-20.md). The earlier immediate prompt-display fix remains included.
 
 Deployment follow-up: the report relay and signed update host are now deployed on Cloudflare's **Free ($0)** plan. The signing key is in this Mac's Keychain. See [free hosting and release operations](FREE-HOSTING.md) for the live addresses, token setup and development-distribution limitations. The steps below also explain how to reconnect credentials or move to production signing later.
 
@@ -38,7 +38,7 @@ The report destination is **[ixcxyy/Sinnfaden](https://github.com/ixcxyy/Sinnfad
 
 1. The private repository and Issues are ready. Keep this repository private: the relay refuses to create reports in a public repository.
 2. Create a fine-grained GitHub token restricted to that repository with Issues read/write and the default Metadata read access. Keep it only as the relay's `GITHUB_TOKEN` secret. It must never appear in the Mac app or source control. GitHub App installation tokens can replace it later.
-3. `services/bug-relay/wrangler.jsonc` already sets `GITHUB_REPOSITORY` to `ixcxyy/Sinnfaden`. `ALLOWED_RELEASES` is a comma-separated allowlist of `version+build`, currently `0.4.1+5,0.4.2+6,0.4.3+8,0.4.4+9`. Keep supported older releases while updating it. This reduces forged-report abuse; the public endpoint is not proof that a real installation generated a report.
+3. `services/bug-relay/wrangler.jsonc` already sets `GITHUB_REPOSITORY` to `ixcxyy/Sinnfaden`. `ALLOWED_RELEASES` is a comma-separated allowlist of `version+build`, currently `0.4.1+5,0.4.2+6,0.4.3+8,0.4.4+9,0.4.5+10`. Keep supported older releases while updating it. This reduces forged-report abuse; the public endpoint is not proof that a real installation generated a report.
 4. In that directory, run `npm ci`, `npm test`, and `npx wrangler deploy --dry-run`. Connect the intended Cloudflare account, set the secret using `npx wrangler secret put GITHUB_TOKEN`, and deploy with `npx wrangler deploy` when ready. The current account and relay are already deployed on Workers Free.
 5. The live reporting URL is already in `Config/Info.plist`; `KLAR_BUG_REPORT_URL` can override it when moving hosting. Enable reporting in Settings → Updates & Fehler on each consenting installation.
 6. Watch the private repository's Issues notifications in GitHub; email or mobile alerts are controlled by your GitHub account settings. These preferences were not changed here.
@@ -64,9 +64,9 @@ The current development app is ad hoc signed, with a live hosted feed and Sparkl
 
 ## Verification
 
-- Published build 9: **179 Swift tests** pass (139 core + 40 app), including the live-discovered empty completion-envelope regression and three prompt-presentation regressions. A connected-account prompt check in the installed app also passed; see [release verification](RELEASE-0.4.4.md).
+- Published build 10: **182 Swift tests** pass (142 core + 40 app), including the live-discovered empty completion-envelope regression, prompt-presentation regressions, corrected lesson grading and preserved learning history. Native checks and connected-account prompt samples are in the [quality report](PROMPT-QUALITY-2026-10-20.md).
 - `npm test` in `services/bug-relay`: **17 tests pass**, including recovery beyond GitHub's first issues page. The build-8 synthetic delivery and duplicate acknowledgement passed live; [test issue #2](https://github.com/ixcxyy/Sinnfaden/issues/2) is closed.
-- All five release-staging tests pass. The public 0.4.4 archive, appcast and notes pass signature/hash/size checks; prior builds 8 and 6 remain intact. A separate build-8 copy was updated to the exact build-9 archive, verified, started and closed normally. The running app's manual update check recognizes 0.4.4 as current.
+- All five release-staging tests pass. The public 0.4.5 archive, appcast and notes pass signature/hash/size checks; prior builds 9, 8 and 6 remain intact. A separate build-9 copy was updated to the exact build-10 archive, verified, started and closed normally. The running app's manual update check recognizes 0.4.5 as current.
 - `npx wrangler deploy --dry-run`: validates/bundles the relay and all bindings without deploying.
 - Local Wrangler runtime returns `503 {"accepted":false}` when unconfigured.
 - Release app build and embedded framework code-sign verification pass. The live deployment results are recorded in the free-hosting guide.

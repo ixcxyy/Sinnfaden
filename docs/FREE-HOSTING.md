@@ -2,13 +2,13 @@
 
 Configured on 19 October 2026 for Sinnfaden 0.4.2 (build 6). Cloudflare's dashboard was checked: **Free, $0, Current plan**. No paid plan, domain, R2 bucket, or paid build runner was provisioned.
 
-Current release: **0.4.4 / build 9**, published and verified on 20 October after live account and isolated installation tests. The same free services and signing key are used. See [release verification](RELEASE-0.4.4.md).
+Current release: **0.4.5 / build 10**, published and verified on 20 October after native teaching checks and an isolated installation test. The same free services and signing key are used. See [release verification](RELEASE-0.4.5.md).
 
 ## Services
 
 - Reports: `https://sinnfaden-bug-relay.sinnfaden-bug-relay.workers.dev/v1/reports`
 - Signed update feed: `https://sinnfaden-updates.sinnfaden-bug-relay.workers.dev/appcast.xml`
-- Current update archive: `https://sinnfaden-updates.sinnfaden-bug-relay.workers.dev/Sinnfaden-0.4.4-9.zip` (the previous build-8 and build-6 archives remain available)
+- Current update archive: `https://sinnfaden-updates.sinnfaden-bug-relay.workers.dev/Sinnfaden-0.4.5-10.zip` (the previous build-9, build-8 and build-6 archives remain available)
 - Private source and issues: <https://github.com/ixcxyy/Sinnfaden>
 
 The two Workers deploy independently so a reporting change does not remove hosted update files. The update Worker serves static assets directly, without executing application code for each download. The relay uses SQLite-backed Durable Objects, supported on the Free plan. A free `workers.dev` address provides HTTPS without buying a domain.
@@ -58,7 +58,7 @@ Apple's normal Developer ID/notarization route requires a paid Apple Developer P
    WRANGLER_SEND_METRICS=false services/bug-relay/node_modules/.bin/wrangler deploy --config services/update-host/wrangler.jsonc
    ```
 
-   Static deployment uploads all assets before switching the active version. The staging directory contains only files referenced by the signed feed, plus cache headers. Keep `Artifacts/updates` as the local release archive; do not deploy the whole project or `Artifacts` directory. Rebuilding a feed without retained older releases can remove their downloads.
+   Static deployment uploads all assets before switching the active version. The staging directory contains only files referenced by the signed feed, plus cache headers. Keep `Artifacts/updates` as the local release archive; do not deploy the whole project or `Artifacts` directory. When using a fresh output folder, copy the previous signed `appcast.xml` as well as its archives and notes before running `generate_appcast --versions <new-build>`. Assert that the generated feed lists the new build and every intended retained build **before staging/deployment**. Copying old archives without carrying forward their feed entries does not retain their public downloads.
 
 4. Verify the HTTPS feed signature, perform an update on a separate installed copy, and check that a synthetic report reaches the private issue inbox. Do not treat a successful upload as proof of an installed update.
 
