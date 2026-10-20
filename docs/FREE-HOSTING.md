@@ -2,13 +2,13 @@
 
 Configured on 19 October 2026 for Sinnfaden 0.4.2 (build 6). Cloudflare's dashboard was checked: **Free, $0, Current plan**. No paid plan, domain, R2 bucket, or paid build runner was provisioned.
 
-Current release: **0.4.6 / build 11**, published and verified on 20 October after the release checks and an isolated Sparkle installation test from build 10. The same free services and signing key are used. See [release verification](RELEASE-0.4.6.md); the previous release is recorded in [RELEASE-0.4.5.md](RELEASE-0.4.5.md).
+Current release: **0.4.7 / build 12**, published and verified on 20 October after the release checks and an isolated Sparkle installation test from build 11. The Applications copy was also updated through Sparkle and confirms it is current. The same free services and signing key are used. See [release verification](RELEASE-0.4.7.md); the previous release is recorded in [RELEASE-0.4.6.md](RELEASE-0.4.6.md).
 
 ## Services
 
 - Reports: `https://sinnfaden-bug-relay.sinnfaden-bug-relay.workers.dev/v1/reports`
 - Signed update feed: `https://sinnfaden-updates.sinnfaden-bug-relay.workers.dev/appcast.xml`
-- Current update archive: `https://sinnfaden-updates.sinnfaden-bug-relay.workers.dev/Sinnfaden-0.4.6-11.zip` (the previous build-10, build-9, build-8 and build-6 archives remain available; delta updates from those builds are published)
+- Current update archive: `https://sinnfaden-updates.sinnfaden-bug-relay.workers.dev/Sinnfaden-0.4.7-12.zip` (the previous build-11, build-10, build-9, build-8 and build-6 archives remain available; delta updates from those builds are published)
 - Private source and issues: <https://github.com/ixcxyy/Sinnfaden>
 
 The two Workers deploy independently so a reporting change does not remove hosted update files. The update Worker serves static assets directly, without executing application code for each download. The relay uses SQLite-backed Durable Objects, supported on the Free plan. A free `workers.dev` address provides HTTPS without buying a domain.
