@@ -19,6 +19,7 @@ final class BackendRegressionTests: XCTestCase {
         var parser = ResponsesStreamParser()
         try parser.consume(line: #"data: {"type":"response.output_text.delta","delta":"incomplete"}"#)
         try parser.consume(line: "")
+        try event(#"{"type":"response.output_item.done","output_index":0,"item":{"type":"message","status":"completed","content":[{"type":"output_text","text":"earlier finalized text"}]}}"#, into: &parser)
         try parser.consume(line: #"data: {"type":"response.completed","response":{"status":"completed","output":[{"content":[{"type":"output_text","text":"complete answer"}]}]}}"#)
         try parser.consume(line: "")
         XCTAssertEqual(try parser.finish(), "complete answer")
@@ -32,8 +33,8 @@ final class BackendRegressionTests: XCTestCase {
         XCTAssertThrowsError(try parser.consume(line: ""))
     }
 
-    func testFinalizedMessageSurvivesAnOmittedOrNullTerminalOutput() throws {
-        for output in ["", ",\"output\":null"] {
+    func testFinalizedMessageSurvivesAnOmittedNullOrEmptyTerminalOutput() throws {
+        for output in ["", ",\"output\":null", ",\"output\":[]"] {
             var parser = ResponsesStreamParser()
             try event(#"{"type":"response.output_text.delta","delta":"partial"}"#, into: &parser)
             try event(#"{"type":"response.output_item.done","output_index":0,"item":{"id":"msg_final","type":"message","status":"completed","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"complete final answer"}]}}"#, into: &parser)
@@ -65,10 +66,41 @@ final class BackendRegressionTests: XCTestCase {
         XCTAssertThrowsError(try parser.finish())
     }
 
+    func testEmptyTerminalOutputUsesFinalizedItemsInOrderWithoutCommentaryOrDeltas() throws {
+        var parser = ResponsesStreamParser()
+        try event(#"{"type":"response.output_text.delta","delta":"partial commentary must not leak"}"#, into: &parser)
+        try event(#"{"type":"response.output_item.done","output_index":2,"item":{"type":"message","status":"completed","phase":"final_answer","content":[{"type":"output_text","text":"world"}]}}"#, into: &parser)
+        try event(#"{"type":"response.output_item.done","output_index":0,"item":{"type":"message","status":"completed","phase":"commentary","content":[{"type":"output_text","text":"Working on it"}]}}"#, into: &parser)
+        try event(#"{"type":"response.output_item.done","output_index":1,"item":{"type":"message","status":"completed","phase":"final_answer","content":[{"type":"output_text","text":"Hello "}]}}"#, into: &parser)
+        try event(#"{"type":"response.completed","response":{"status":"completed","output":[]}}"#, into: &parser)
+        XCTAssertEqual(try parser.finish(), "Hello world")
+    }
+
+    func testFinalizedItemsStillRequireSuccessfulCompletionAndAnActualAnswer() throws {
+        for phase in ["commentary", "final_answer"] {
+            var parser = ResponsesStreamParser()
+            try event("{\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"type\":\"message\",\"status\":\"completed\",\"phase\":\"\(phase)\",\"content\":[{\"type\":\"output_text\",\"text\":\"finished item\"}]}}", into: &parser)
+            XCTAssertThrowsError(try parser.finish()) { error in
+                XCTAssertEqual((error as? ProviderFailure)?.kind, .interrupted)
+            }
+            if phase == "commentary" {
+                try event(#"{"type":"response.completed","response":{"status":"completed","output":[]}}"#, into: &parser)
+                XCTAssertThrowsError(try parser.finish()) { error in
+                    XCTAssertEqual((error as? ProviderFailure)?.code, "empty_text_response")
+                }
+            } else {
+                XCTAssertThrowsError(try event(#"{"type":"response.incomplete","response":{"status":"incomplete","output":[]}}"#, into: &parser)) { error in
+                    XCTAssertEqual((error as? ProviderFailure)?.kind, .incomplete)
+                }
+            }
+        }
+    }
+
     func testMalformedTerminalOutputDoesNotFallBackToPartialText() throws {
         for output in ["false", "{}", "[42]"] {
             var parser = ResponsesStreamParser()
             try event(#"{"type":"response.output_text.delta","delta":"partial"}"#, into: &parser)
+            try event(#"{"type":"response.output_item.done","output_index":0,"item":{"type":"message","status":"completed","content":[{"type":"output_text","text":"finalized text"}]}}"#, into: &parser)
             XCTAssertThrowsError(try event("{\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":\(output)}}", into: &parser))
         }
     }

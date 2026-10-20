@@ -61,9 +61,12 @@ public struct ResponsesStreamParser {
         case "response.completed":
             guard let response = event["response"] as? [String: Any], response["status"] as? String == "completed" else { throw ProviderFailure(.invalidResponse, "Die Antwort wurde nicht eindeutig abgeschlossen.") }
             if let output = response["output"] as? [[String: Any]] {
-                // An explicitly supplied array is authoritative, including an empty one.
                 terminalItemCount = output.count
-                text = try Self.finalText(from: output)
+                // The observed direct ChatGPT route can finish with output: [] after
+                // sending complete output_item.done messages. Use those finalized
+                // items only for an empty envelope; never resurrect unfinalized deltas.
+                let items = output.isEmpty ? finalizedItems.keys.sorted().compactMap { finalizedItems[$0] } : output
+                text = try Self.finalText(from: items)
             } else if let output = response["output"], !(output is NSNull) {
                 throw ProviderFailure(.invalidResponse, "Die abgeschlossene Antwort enthält ein ungültiges Ausgabeformat.")
             } else if !finalizedItems.isEmpty {

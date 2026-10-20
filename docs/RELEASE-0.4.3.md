@@ -1,5 +1,7 @@
 # Sinnfaden 0.4.3 release handoff
 
+**Superseded candidate:** after Jonas approved Keychain access, live validation reproduced a remaining stream-handling defect in build 7. Build 8 contains its regression-tested fix and is undergoing live/installation checks. Do not publish the build-7 archive described below. See [the post-approval validation record](POST-APPROVAL-2026-10-20.md) for current status. The following is the preserved overnight handoff.
+
 **Verified 20 October 2026, 05:17 Europe/Vienna. Unpublished.**
 
 Final status check at **06:26 Vienna**: the separate installation target remains build 6, the installer remains stalled, and this package is still unpublished. All subsequent commits after package preparation change documentation only. The night ends at 06:30 with no further source edits; the installed/published update and connected-account quality gates remain open.
