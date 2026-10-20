@@ -62,8 +62,9 @@ The current development app is ad hoc signed, with a live hosted feed and Sparkl
 
 ## Verification
 
-- `swift test`: 89 tests pass, including new backend regression and diagnostics tests.
-- `npm test` in `services/bug-relay`: 10 tests pass (validation, privacy, duplicate concurrency, private-only issues, rate limiting, definite failures and uncertain POST recovery).
+- Overnight candidate, 20 October 2026: `swift test` passes **174 tests** (137 core + 37 app). This candidate is not yet published; see [the release handoff](RELEASE-0.4.3.md) for exact evidence and outstanding gates.
+- `npm test` in `services/bug-relay`: **17 tests pass**, including recovery beyond GitHub's first issues page. The relay fix is live; it does not publish the app candidate.
+- Five release-staging tests passed during hosting setup; run them again with the final release checks.
 - `npx wrangler deploy --dry-run`: validates/bundles the relay and all bindings without deploying.
 - Local Wrangler runtime returns `503 {"accepted":false}` when unconfigured.
 - Release app build and embedded framework code-sign verification pass. The live deployment results are recorded in the free-hosting guide.

@@ -160,6 +160,8 @@ The eighteen-batch candidate passed native multi-choice checks at 03:35 in separ
 
 - At 04:41 the isolated installation still reports build 6; PIDs 84440/84441 remain alive after about 232 minutes. The transaction, target and loopback server remain untouched. No overnight app update is published. Continue focused validation of the twenty-three completed batches, then prioritize release evidence and documentation from 06:00.
 
+- At 04:56 the isolated target still reports build 6; installer PIDs 84440/84441 remain alive after about 247 minutes. The active installation remains untouched. Request/resource timeout bounds, shared refresh handling, account-transition serialization, callback limits and handoff planning were inspected; this pass did not establish another reproducible defect, so no production code was changed. Prepared `docs/RELEASE-0.4.3.md` and German `docs/release-notes/0.4.3.md`, and corrected the maintenance guide's historical test counts. The handoff separates the live relay, tested app source and outstanding exact-archive installation/live-account checks. Final validation still begins at 06:00; no new archive or production feed was published.
+
 ## Claude handoff
 
 None; current scope does not require design changes.
