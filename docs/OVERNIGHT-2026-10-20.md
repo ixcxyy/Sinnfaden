@@ -13,6 +13,13 @@ Claude may be used through its Mac app for necessary design work with a focused 
 - At 06:00, stop adding scope and prioritize tests, review, release, actual update installation and documentation. At 06:30, stop new edits, finish any already-running publication transaction safely, report actual results, and pause both automations.
 - An idle-sleep prevention process was started for this night. The Mac must remain powered with lid open and Codex running. Do not promise execution while the machine is asleep or disconnected.
 
+## Latest status (05:26 Vienna)
+
+- Twenty-three code batches are pushed; source is unchanged since `6977f5a`. The final archive and all 196 passing automated checks are recorded in [the release handoff](RELEASE-0.4.3.md). Preserve `Candidate-final`, `Release-final`, `Site-final` and their verification evidence.
+- The isolated six-batch installer still has not finished: target build 6, PIDs 84440/84441 alive after 276 minutes. Do not interrupt its replacement transaction or start an overlapping installer for the same app. The final archive requires its own successful real installation afterward.
+- The live account is still unverified and the production feed remains 0.4.2. No publication, token change, account change or paid service is needed or authorized as a workaround.
+- This pass inspected update-check preferences, confirmation settings and report scheduling. No additional reproducible defect was established; no app source or signed package changed. Continue installation checks, final documentation and the scheduled 06:30 handoff; avoid repeating the already passing suites without new evidence.
+
 ## Starting state
 
 - Private repository: `ixcxyy/Sinnfaden`, branch `main`, clean at `e2e563d1de7b4ed06b9b1aed56ffdc1851e63d6c`.
