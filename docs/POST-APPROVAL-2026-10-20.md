@@ -2,6 +2,16 @@
 
 The overnight automations were paused at 06:30 Vienna. Jonas subsequently approved the pending Keychain access and returned to continue the blocked validation. This is a user-triggered continuation; both scheduled automations remain paused.
 
+## Release gates passed after the afternoon retry
+
+At 17:53 Vienna, the build-8 app showed a completed Keychain-unavailable error rather than a pending prompt. Selecting the same saved account again restored the connection and its model catalog without a new login, credential replacement, or permission bypass.
+
+- **Live generic prompt passed:** the appointment-email prompt that previously failed returned a complete improvement with two explanations and three fields for missing details. It explicitly avoided inventing a reason for rescheduling.
+- **Live detailed prompt passed:** the German weather/climate teaching prompt specified an adult beginner, 120-word maximum, an everyday example, two comprehension questions and simple language. Sinnfaden classified it as already clear, preserved its exact text and explained the supplied constraints instead of inventing missing requirements.
+- **Exact-archive installation passed:** the separate `InstallTarget-build8` now reports build 8. Deep/strict code-sign verification passes, and its executable exactly matches `Candidate-build8`. Launching the installed app in explicit `--demo` mode displayed the main screen; normal quit returned exit 0. The completed test server was stopped.
+- Evidence: `Artifacts/postapproval-build8-live-generic.txt`, `postapproval-build8-live-detailed.txt`, `postapproval-build8-installed-startup.txt`, and corresponding screenshots under `Artifacts/overnight-2026-10-20/`.
+- The relay configuration now retains old releases and adds `0.4.3+8`. All 17 relay tests pass again. The exact signed files were verified and staged to `Artifacts/update-site`; publication is the remaining step. Neither overnight automation was resumed.
+
 ## Confirmed progress
 
 - The old six-batch installer completed. Its separate target reports build 7, passes deep/strict code-sign verification, exactly matches the preserved six-batch executable, starts in explicit `--demo` mode, and quits normally (exit 0).
@@ -17,7 +27,7 @@ Two regression failures reproduced the loss. Build **0.4.3 / 8** now reads valid
 
 All **176 Swift tests passed** (139 core + 37 app), including existing cancellation/refusal tests and new coverage for empty completion arrays, item ordering and successful-completion requirements. Manual diff review, AST graph update, release compilation and deep/strict signatures passed. Evidence: `Artifacts/postapproval-response-counts.log`, `postapproval-empty-terminal-before.log`, `postapproval-empty-terminal-after.log`, `postapproval-build8-build.log`.
 
-## Current release candidate
+## Release candidate and morning checkpoint
 
 - App: `Artifacts/overnight-2026-10-20/Candidate-build8/Sinnfaden.app`.
 - Signed archive/feed/notes: `Artifacts/overnight-2026-10-20/Release-build8`.
@@ -29,4 +39,4 @@ All **176 Swift tests passed** (139 core + 37 app), including existing cancellat
 
 At 07:12 the separate target still reports build 6; its installer and loopback server remain active. The build-8 app is responsive but still waiting for the Keychain read. Source commit `7fc7faa` is pushed. Reporting and release-staging suites also pass again (17 + 5), bringing the current automated total to **198 passing tests**. No live build-8 inference success or completed build-8 installation is claimed. The two earlier local update servers were stopped after their corresponding transactions completed.
 
-Next: verify build-8 Keychain restoration, retry the generic prompt and a bounded set of synthetic tasks, complete the installation/startup check, then publish only the exact tested archive with the previous published release retained. Keep user work and the existing account intact.
+The morning blockers above are historical; the afternoon validation section records their resolution. Next: publish only the exact tested archive with the previous published release retained, verify the public downloads and report acknowledgement, and record deployment identifiers. Keep user work and the existing account intact.
