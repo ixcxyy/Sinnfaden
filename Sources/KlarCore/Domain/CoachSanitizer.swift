@@ -159,7 +159,10 @@ public enum CoachSanitizer {
         var usedIDs = Set<String>()
         for (index, candidate) in response.changes.enumerated() {
             var change = candidate
-            if !CoachValidator.validID(change.id) || usedIDs.contains(change.id) { change.id = "c\(index + 1)x" }
+            if !CoachValidator.validID(change.id) || usedIDs.contains(change.id) {
+                var counter = index + 1
+                repeat { change.id = "c\(counter)x"; counter += 1 } while usedIDs.contains(change.id)
+            }
             if let rule = change.ruleID, RuleRegistry.lookup(rule) == nil { change.ruleID = nil }
             change.title = trimmed(change.title, limit: 120)
             change.category = trimmed(change.category, limit: 80)
@@ -214,7 +217,17 @@ public enum CoachSanitizer {
     static func trimmed(_ text: String, limit: Int) -> String {
         var clean = String(String.UnicodeScalarView(text.unicodeScalars.filter { $0.value >= 32 || $0 == "\n" || $0 == "\t" || $0 == "\r" }))
         clean = clean.trimmingCharacters(in: .whitespacesAndNewlines)
-        while clean.utf16.count > limit { clean.removeLast() }
-        return clean
+        guard clean.utf16.count > limit else { return clean }
+        // Walk only the retained prefix; repeatedly counting/removing the tail is quadratic.
+        var end = clean.startIndex
+        var remaining = limit
+        while end < clean.endIndex {
+            let next = clean.index(after: end)
+            let length = clean[end..<next].utf16.count
+            guard length <= remaining else { break }
+            remaining -= length
+            end = next
+        }
+        return String(clean[..<end])
     }
 }

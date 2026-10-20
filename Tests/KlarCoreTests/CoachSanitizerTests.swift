@@ -123,6 +123,40 @@ final class CoachSanitizerTests: XCTestCase {
         XCTAssertTrue(response.inputs.isEmpty)
     }
 
+    func testRepairingChangeIDsNeverCollidesWithAKeptExplanation() throws {
+        for secondID in ["c2x", "bad id", ""] {
+            var object = base
+            object["segments"] = [
+                ["id": "s1", "text": original + " "],
+                ["id": "s2", "text": "Fasse dich kurz. "],
+                ["id": "s3", "text": "Schlage zwei Termine vor."]
+            ]
+            object["changes"] = [
+                ["id": "c2x", "kind": "addition", "target_segment_ids": ["s2"], "category": "Länge", "title": "Kürzer", "explanation": "Die E-Mail bleibt übersichtlich."],
+                ["id": secondID, "kind": "addition", "target_segment_ids": ["s3"], "category": "Ziel", "title": "Termine", "explanation": "Die Empfängerin kann einen Termin auswählen."]
+            ]
+            let cleaned = CoachSanitizer.clean(try answer(object), original: original)
+            XCTAssertNoThrow(try CoachValidator.decode(cleaned, original: original))
+            let response = try JSONDecoder().decode(CoachResponse.self, from: cleaned)
+            XCTAssertEqual(response.changes.count, 2)
+            XCTAssertEqual(Set(response.changes.map(\.id)).count, 2)
+            XCTAssertEqual(response.changes.map(\.targetSegmentIDs), [["s2"], ["s3"]])
+            XCTAssertEqual(response.prompt, original + " Fasse dich kurz. Schlage zwei Termine vor.")
+        }
+    }
+
+    func testMetadataTrimmingKeepsWholeUnicodeCharactersAtTheUTF16Limit() {
+        let text = " \u{0}Ä👩🏽‍💻e\u{301}終 \n"
+        for (limit, expected) in [(0, ""), (1, "Ä"), (7, "Ä"), (8, "Ä👩🏽‍💻"), (9, "Ä👩🏽‍💻"),
+                                  (10, "Ä👩🏽‍💻e\u{301}"), (11, "Ä👩🏽‍💻e\u{301}終"), (20, "Ä👩🏽‍💻e\u{301}終")] {
+            XCTAssertEqual(CoachSanitizer.trimmed(text, limit: limit), expected)
+        }
+        XCTAssertEqual(CoachSanitizer.trimmed(" A\u{0}B\tC\nD\u{1B}E ", limit: 7), "AB\tC\nDE")
+        XCTAssertEqual(CoachSanitizer.trimmed("a" + String(repeating: "\u{301}", count: 1_200), limit: 1_200), "",
+                       "A single oversized composed character must not be split")
+        XCTAssertEqual(CoachSanitizer.trimmed(String(repeating: "ä", count: 50_000), limit: 1_200), String(repeating: "ä", count: 1_200))
+    }
+
     func testBrokenJSONStillFails() {
         XCTAssertThrowsError(try CoachValidator.decode(CoachSanitizer.clean("{invalid", original: original), original: original))
         XCTAssertThrowsError(try CoachValidator.decode(CoachSanitizer.clean("Kein JSON", original: original), original: original))

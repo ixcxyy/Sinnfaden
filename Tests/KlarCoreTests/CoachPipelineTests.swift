@@ -76,6 +76,28 @@ final class CoachPipelineTests: XCTestCase {
         XCTAssertEqual(stages.all, [.requesting, .validating, .repairing, .validating])
     }
 
+    func testCollidingExplanationIDsAreRepairedWithoutAnotherGeneration() async throws {
+        let original = "Erkläre Regen."
+        let response = CoachResponse(status: .improved, coachMessage: "Zwei Hinweise machen das Ergebnis klarer.", segments: [
+            PromptSegment(id: "s1", text: original + " "),
+            PromptSegment(id: "s2", text: "Nutze drei Sätze. "),
+            PromptSegment(id: "s3", text: "Nenne ein Beispiel.")
+        ], changes: [
+            PromptChange(id: "c2x", kind: .addition, targetSegmentIDs: ["s2"], category: "Länge", title: "Kurz", explanation: "Die Antwort bleibt kurz."),
+            PromptChange(id: "bad id", kind: .addition, targetSegmentIDs: ["s3"], category: "Beispiel", title: "Anschaulich", explanation: "Ein Beispiel hilft beim Verstehen.")
+        ])
+        let script = Script([.success(String(decoding: try JSONEncoder().encode(response), as: UTF8.self))])
+        let stages = Stages()
+        let result = try await CoachPipeline.run(original: original, generate: { instructions, input in
+            try await script.generate(instructions: instructions, input: input)
+        }, onStage: { stages.add($0) })
+        let inputs = await script.inputs
+        XCTAssertEqual(inputs.count, 1)
+        XCTAssertEqual(result.prompt, response.prompt)
+        XCTAssertEqual(result.changes.map(\.explanation), response.changes.map(\.explanation))
+        XCTAssertEqual(stages.all, [.requesting, .validating])
+    }
+
     func testSecondInvalidFormatFailsWithoutThirdGeneration() async {
         let script = Script([.success("{"), .success("not json")])
         let stages = Stages()
