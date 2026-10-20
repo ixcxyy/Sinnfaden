@@ -1,36 +1,36 @@
-# Sinnfaden 0.4.3 release handoff
+# Sinnfaden 0.4.3 release verification
 
-**Superseded candidate:** after Jonas approved Keychain access, live validation reproduced a remaining stream-handling defect in build 7. Build 8 contains its regression-tested fix and is undergoing live/installation checks. Do not publish the build-7 archive described below. See [the post-approval validation record](POST-APPROVAL-2026-10-20.md) for current status. The following is the preserved overnight handoff.
+**Published: 20 October 2026, build 8.** The existing visual design is preserved. Source and release operations are pushed to private `ixcxyy/Sinnfaden`; signed downloads use the existing free Cloudflare service.
 
-**Verified 20 October 2026, 05:17 Europe/Vienna. Unpublished.**
+## Improvements
 
-Final status check at **06:26 Vienna**: the separate installation target remains build 6, the installer remains stalled, and this package is still unpublished. All subsequent commits after package preparation change documentation only. The night ends at 06:30 with no further source edits; the installed/published update and connected-account quality gates remain open.
+The overnight work corrected cancellation and account-switch races, saved field restoration, failed-save recovery, oversized input handling, generated-output validation, lesson feedback and report delivery. The post-approval live test exposed a further response-parser defect: a completed stream with an empty final envelope discarded its already finalized text. Build 8 preserves validated finalized items while retaining refusal, completion and malformed-response safeguards.
 
-The app changes through source commit `6977f5a` are pushed to private `ixcxyy/Sinnfaden`. The final candidate was rebuilt from clean checkout `75c9cad` (documentation only after that code commit) at `Artifacts/overnight-2026-10-20/Candidate-final/Sinnfaden.app` (0.4.3, build 7). Keep the existing design and free hosting configuration. If source changes again, rebuild, retest and prepare a new local archive before updating this handoff; never replace published bytes.
+Two real ChatGPT-account tests passed. The generic appointment-email prompt produced useful missing-detail fields and explanations without inventing a reason. The detailed German weather/climate learning prompt was correctly recognized as already clear and preserved unchanged. These bounded checks establish that the reproduced failure is fixed; they do not guarantee every possible generated answer.
 
-## What is ready
+## Verification and exact release
 
-- **196 automated tests passed in the release verification:** 174 Swift (137 core + 37 app), 17 reporting-relay and 5 release-staging tests. Evidence: `Artifacts/overnight-final-swift-tests.log`, `overnight-final-relay-tests.log`, `overnight-final-release-tests.log`.
-- Release compilation and deep/strict code-sign verification passed for the final candidate. Evidence: `Artifacts/overnight-final-build.log`.
-- Native demo tests covered lesson feedback, oversized recipe drafts, number/date fields, multi-choice selections, oversized generated fields, correction and restart persistence. The checkpoint records the exact candidate tested for each case; this is not a claim that every native check used batch 23.
-- The reporting relay's pagination/reconciliation fix is already live on the existing Free Worker. All 17 relay tests passed; a repeat of the known synthetic report was acknowledged. No new issue or paid resource was created.
-- A final service check at **05:56 Vienna** again received HTTP 200 / `accepted: true` for the same known synthetic fingerprint. The public appcast's Sparkle signature passed verification and still lists **0.4.2/build 6**. Evidence: `Artifacts/overnight-final-relay-live.json`, `Artifacts/overnight-final-live-appcast.xml`.
-- User-facing notes from [release-notes/0.4.3.md](release-notes/0.4.3.md) are included in the signed package. Local preparation succeeded using the existing Keychain key; no new key or credential was created.
-- **Exact signed package:** `Artifacts/overnight-2026-10-20/Release-final/Sinnfaden-0.4.3-7.zip`, 3,684,474 bytes, SHA-256 `3f3c72a8786c2fd02900b605224f61904e3266584f6af854d577d4b798482ada`. Appcast, archive and notes passed Sparkle signature verification and the free hosting size limit, then staged only to `Artifacts/overnight-2026-10-20/Site-final`. Existing `Artifacts/updates` and `Artifacts/update-site` were preserved. Evidence: `Artifacts/overnight-final-package.log`, `overnight-final-verification.log`, `Artifacts/overnight-2026-10-20/release-final-verification.json`.
-- Extracting that archive to `Artifacts/overnight-2026-10-20/ArchiveCheck-final` passed deep/strict code-sign verification; its executable exactly matches the built candidate (SHA-256 `4f895f4d052c99f1eca1cd7fcc40ccb7bc1fa89420c1d5e00709ed6aa5b005d2`). Extraction is **not** a completed update installation test.
+- **198 automated tests passed:** 176 Swift (139 core + 37 app), 17 relay and 5 release-staging tests. Manual diff review and the local AST graph update completed for the source fix.
+- App source commit: `7fc7faac36f8b2586f885e10c5f82b2d946658c1`. Subsequent changes are release configuration and documentation.
+- Archive: `Sinnfaden-0.4.3-8.zip`, **3,684,416 bytes**, SHA-256 `0941dfe72a4a9ebf09a5532090eaf5ca7cd43c4a8d1f84018df55673338906dc`.
+- A separate installed build 6 was updated through Sparkle to this exact archive. Its installed version is 8, deep/strict code-sign verification passes, and its executable matches the candidate. Explicit demo startup and normal quit passed.
+- The public feed, two archives and release notes were downloaded after deployment. All four files match their staged bytes and pass signature verification. The original build-6 archive remains unchanged. No delta update is offered for build 8.
+- The app restored its existing ChatGPT account after restart. Its **Nach Updates suchen …** command reported that 0.4.3 is the newest available version.
+- A synthetic report created exactly one private GitHub issue; the duplicate was acknowledged without creating another issue. [Release test #2](https://github.com/ixcxyy/Sinnfaden/issues/2) was clearly marked and closed.
 
-## What prevents publication
+## Live services
 
-1. **Installation has not completed.** The isolated build 6 → 7 test downloaded and verified an earlier six-batch archive but is stalled at file replacement. Installer PIDs 84440/84441 and the loopback server remain active. Its source, archive and target must not be overwritten or interrupted during that transaction. No specific permission cause has been confirmed. The production feed still offers 0.4.2/build 6.
-2. **Live account quality is unverified.** The original app produced an empty-answer error; the old first candidate is blocked in macOS credential access. The later parser and asynchronous-read fixes have synthetic regression coverage, but no overnight candidate has completed a real connected-account prompt test. Preserve the account and pending user permission question; do not retrieve credentials elsewhere or substitute paid API usage.
-3. **The exact final archive still needs its own installation test.** Success of the current six-batch test would not validate the final package. The final app, archive, feed and notes now pass their signature checks; replacement of an older installed app and subsequent startup remain unverified.
+- [Signed update feed](https://sinnfaden-updates.sinnfaden-bug-relay.workers.dev/appcast.xml)
+- [Build-8 download](https://sinnfaden-updates.sinnfaden-bug-relay.workers.dev/Sinnfaden-0.4.3-8.zip)
+- [Private bug inbox](https://github.com/ixcxyy/Sinnfaden/issues)
+- Update deployment: `a87dff28-b540-43ac-84c3-71eb79977873`.
+- Reporting deployment: `9b9594d2-b559-4b25-b2dd-7ddc46933a80`.
+- Supported reporting releases: `0.4.1+5,0.4.2+6,0.4.3+8`.
 
-## Remaining release sequence
+## Limits and handoff
 
-1. Preserve the completed verification and final package. From 06:00, prioritize installation status and documentation. Repeat builds/tests only if source changes or new evidence requires it.
-2. Keep `Release-final` bytes unchanged. Preserve `Artifacts/updates` and every previously published archive; never replace published bytes under the same version/build.
-3. Once the existing transaction finishes, test the exact final archive on a separate older app copy using an isolated signed test feed. Confirm installed version, deep/strict code signature, executable identity and startup with `--demo`. Preserve owner data and the connected account. Do not start overlapping installers for the same bundle or interrupt the active replacement.
-4. Only after the required gates pass, add `0.4.3+7` to the relay allowlist, retaining supported older versions. Stage the verified signed files with the retained prior releases and deploy through the existing free Workers. Verify the public feed/download bytes and reporting acknowledgement after publication.
-5. At 06:30 stop new edits, report the actual gates passed and any remaining blockers, and pause both overnight automations. If installation is still stalled, leave 0.4.2 live and report 0.4.3 as prepared but unpublished.
+This is free **development distribution**: Sparkle-signed updates and ad hoc app signing, without Apple Developer ID/notarization. Rebuilding can trigger macOS Keychain access prompts; no protections were bypassed. The existing saved account recovered by selecting it again, without signing out or replacing credentials. GitHub email/push notification for issues created with the owner's own token is not guaranteed; the private issue inbox is the verified delivery destination. Reporting retry/backoff remains in effect for older queued development reports.
 
-This remains free **development distribution**: ad hoc app signing plus Sparkle update signatures, with no Apple Developer ID or notarization. No hosting upgrade, new token, signing-key replacement or paid API fallback is needed for the prepared work. See [FREE-HOSTING.md](FREE-HOSTING.md) for existing service credentials and operations, and [OVERNIGHT-2026-10-20.md](OVERNIGHT-2026-10-20.md) for detailed evidence and process state.
+Updates require download/install confirmation. Automatic checks operate while the app is running and online. No hosting upgrade, paid API fallback, new token or new signing key was needed. Both overnight automations remain paused.
+
+Build 7 was never published and must not be released: the live parser failure was fixed in build 8. Historical night checkpoints remain in [OVERNIGHT-2026-10-20.md](OVERNIGHT-2026-10-20.md). Detailed post-approval chronology and evidence paths are in [POST-APPROVAL-2026-10-20.md](POST-APPROVAL-2026-10-20.md). Operational instructions are in [FREE-HOSTING.md](FREE-HOSTING.md).

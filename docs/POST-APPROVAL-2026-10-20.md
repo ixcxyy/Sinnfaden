@@ -2,6 +2,19 @@
 
 The overnight automations were paused at 06:30 Vienna. Jonas subsequently approved the pending Keychain access and returned to continue the blocked validation. This is a user-triggered continuation; both scheduled automations remain paused.
 
+## Published and verified
+
+**0.4.3 / build 8 is live.** The public feed offers builds 8 and 6. All four hosted files exactly match their staged hashes and pass Sparkle signature verification. The original build-6 download remains available unchanged. Local `Artifacts/updates` now retains the published build-8 archive and feed.
+
+- Update Worker deployment: `a87dff28-b540-43ac-84c3-71eb79977873`.
+- Reporting Worker deployment: `9b9594d2-b559-4b25-b2dd-7ddc46933a80`.
+- The build-8 synthetic report returned HTTP 201, then HTTP 200 for a duplicate. GitHub's authenticated API verified the repository is private and exactly one matching issue existed. [Issue #2](https://github.com/ixcxyy/Sinnfaden/issues/2) was marked as a synthetic release check and closed.
+- After a normal restart, the app restored its connected ChatGPT account without intervention. **Nach Updates suchen …** displayed “Sinnfaden 0.4.3 is currently the newest version available” against the live feed.
+- Evidence: `Artifacts/overnight-2026-10-20/release-build8-live-verification.json`, `release-build8-verification.json`, `build8-live-update-check.png`, `Artifacts/postapproval-build8-relay-live.json`, and `postapproval-build8-github-verification.json`.
+- Validation remains **198 passing automated tests** plus the two real connected-account prompt checks and isolated installation/startup check. No application source changed after the tested build.
+
+No new hosting, token or signing setup is needed. The existing free development-distribution limits still apply: ad hoc app signing without Apple notarization, macOS access prompts can recur after rebuilding, and GitHub notifications from the owner's own token are not guaranteed. Existing queued development reports retain their retry state; the synthetic delivery test does not claim every old queue entry was sent. The app remains connected and both overnight automations remain paused.
+
 ## Release gates passed after the afternoon retry
 
 At 17:53 Vienna, the build-8 app showed a completed Keychain-unavailable error rather than a pending prompt. Selecting the same saved account again restored the connection and its model catalog without a new login, credential replacement, or permission bypass.
@@ -10,7 +23,7 @@ At 17:53 Vienna, the build-8 app showed a completed Keychain-unavailable error r
 - **Live detailed prompt passed:** the German weather/climate teaching prompt specified an adult beginner, 120-word maximum, an everyday example, two comprehension questions and simple language. Sinnfaden classified it as already clear, preserved its exact text and explained the supplied constraints instead of inventing missing requirements.
 - **Exact-archive installation passed:** the separate `InstallTarget-build8` now reports build 8. Deep/strict code-sign verification passes, and its executable exactly matches `Candidate-build8`. Launching the installed app in explicit `--demo` mode displayed the main screen; normal quit returned exit 0. The completed test server was stopped.
 - Evidence: `Artifacts/postapproval-build8-live-generic.txt`, `postapproval-build8-live-detailed.txt`, `postapproval-build8-installed-startup.txt`, and corresponding screenshots under `Artifacts/overnight-2026-10-20/`.
-- The relay configuration now retains old releases and adds `0.4.3+8`. All 17 relay tests pass again. The exact signed files were verified and staged to `Artifacts/update-site`; publication is the remaining step. Neither overnight automation was resumed.
+- The relay configuration now retains old releases and adds `0.4.3+8`. All 17 relay tests pass again. The exact signed files were verified and staged to `Artifacts/update-site` before publication. Neither overnight automation was resumed.
 
 ## Confirmed progress
 
@@ -39,4 +52,4 @@ All **176 Swift tests passed** (139 core + 37 app), including existing cancellat
 
 At 07:12 the separate target still reports build 6; its installer and loopback server remain active. The build-8 app is responsive but still waiting for the Keychain read. Source commit `7fc7faa` is pushed. Reporting and release-staging suites also pass again (17 + 5), bringing the current automated total to **198 passing tests**. No live build-8 inference success or completed build-8 installation is claimed. The two earlier local update servers were stopped after their corresponding transactions completed.
 
-The morning blockers above are historical; the afternoon validation section records their resolution. Next: publish only the exact tested archive with the previous published release retained, verify the public downloads and report acknowledgement, and record deployment identifiers. Keep user work and the existing account intact.
+The morning blockers above are historical; the afternoon validation and publication sections record their resolution. The release transaction is complete.
