@@ -28,7 +28,7 @@ public struct ResponsesStreamParser {
     public mutating func finish() throws -> String {
         try flush()
         guard completed else { throw ProviderFailure(.interrupted, "Die Antwort wurde unterbrochen. Dein Entwurf bleibt erhalten; du kannst es erneut versuchen.") }
-        guard !text.isEmpty else {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             // Counts only: never record message contents, credentials, IDs, or server-supplied strings.
             let counts = (deltaBytes, finalizedItems.count, terminalItemCount)
             Self.log.error("no_text_response delta_bytes=\(counts.0) finalized_items=\(counts.1) terminal_items=\(counts.2)")
@@ -89,8 +89,8 @@ public struct ResponsesStreamParser {
     private static func finalText(from items: [[String: Any]]) throws -> String {
         var result = ""
         for item in items {
-            let content = item["content"] as? [[String: Any]] ?? []
-            guard !content.contains(where: { $0["type"] as? String == "refusal" }) else {
+            let content = item["content"] as? [[String: Any]]
+            guard content?.contains(where: { $0["type"] as? String == "refusal" }) != true else {
                 throw ProviderFailure(.permission, "OpenAI konnte zu dieser Anfrage keinen Vorschlag liefern.")
             }
             guard item["type"] == nil || item["type"] as? String == "message" else { continue }
@@ -99,8 +99,13 @@ public struct ResponsesStreamParser {
             }
             // Progress commentary is not the requested answer and must not contaminate tutor JSON.
             if let phase = item["phase"] as? String, phase != "final_answer" { continue }
-            for part in content where part["type"] as? String == "output_text" {
-                guard let value = part["text"] as? String else {
+            // A malformed final message must not disappear beside valid siblings, leaving
+            // a partial answer that looks complete. Reasoning/tool items were excluded above.
+            guard let content else {
+                throw ProviderFailure(.invalidResponse, "Ein abgeschlossener Antwortteil enthält ungültigen Textinhalt.")
+            }
+            for part in content {
+                guard part["type"] as? String == "output_text", let value = part["text"] as? String else {
                     throw ProviderFailure(.invalidResponse, "Ein abgeschlossener Textteil ist ungültig.")
                 }
                 result += value

@@ -73,6 +73,53 @@ final class BackendRegressionTests: XCTestCase {
         }
     }
 
+    func testMalformedFinalMessageCannotDisappearBesideAValidAnswer() throws {
+        let valid: [String: Any] = ["type": "message", "content": [["type": "output_text", "text": "Only the first part"]]]
+        let malformed: [[String: Any]] = [
+            ["type": "message"],
+            ["type": "message", "content": NSNull()],
+            ["type": "message", "content": "Missing required text structure"],
+            ["type": "message", "content": [true]],
+            ["type": "message", "content": [["text": "Missing content type"]]],
+            ["type": "message", "content": [["type": "output_text", "text": 42]]]
+        ]
+        for item in malformed {
+            for finalizedSeparately in [false, true] {
+                var parser = ResponsesStreamParser()
+                let payload: [String: Any] = finalizedSeparately
+                    ? ["type": "response.output_item.done", "output_index": 1, "item": item]
+                    : ["type": "response.completed", "response": ["status": "completed", "output": [valid, item]]]
+                let json = String(decoding: try JSONSerialization.data(withJSONObject: payload), as: UTF8.self)
+                try event(#"{"type":"response.output_text.delta","delta":"Only the first part"}"#, into: &parser)
+                XCTAssertThrowsError(try event(json, into: &parser)) { error in
+                    XCTAssertEqual((error as? ProviderFailure)?.kind, .invalidResponse)
+                }
+            }
+        }
+    }
+
+    func testWhitespaceOnlyCompletedResponseIsNotAUsableAnswer() throws {
+        for explicitOutput in [false, true] {
+            var parser = ResponsesStreamParser()
+            try event(#"{"type":"response.output_text.delta","delta":" \n\t "}"#, into: &parser)
+            let response: [String: Any] = explicitOutput
+                ? ["status": "completed", "output": [["type": "message", "content": [["type": "output_text", "text": " \n\t "]]]]]
+                : ["status": "completed"]
+            let json = String(decoding: try JSONSerialization.data(withJSONObject: ["type": "response.completed", "response": response]), as: UTF8.self)
+            try event(json, into: &parser)
+            XCTAssertThrowsError(try parser.finish()) { error in
+                XCTAssertEqual((error as? ProviderFailure)?.kind, .invalidResponse)
+                XCTAssertEqual((error as? ProviderFailure)?.code, "empty_text_response")
+            }
+        }
+    }
+
+    func testNonAnswerItemsRemainSeparateAndFinalWhitespaceIsPreserved() throws {
+        var parser = ResponsesStreamParser()
+        try event(#"{"type":"response.completed","response":{"status":"completed","output":[{"type":"reasoning","summary":[]},{"type":"function_call","arguments":"{}"},{"type":"message","phase":"commentary","content":[]},{"type":"message","phase":"final_answer","content":[{"type":"output_text","text":" \nDie vollständige Antwort.\n "}]}]}}"#, into: &parser)
+        XCTAssertEqual(try parser.finish(), " \nDie vollständige Antwort.\n ")
+    }
+
     private func event(_ json: String, into parser: inout ResponsesStreamParser) throws {
         try parser.consume(line: "data: " + json)
         try parser.consume(line: "")
