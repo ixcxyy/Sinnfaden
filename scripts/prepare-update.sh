@@ -33,7 +33,8 @@ KLAR_ARCHIVE="$KLAR_OUTPUT/Sinnfaden-$KLAR_VERSION-$KLAR_BUILD.zip"
 [ ! -e "$KLAR_ARCHIVE" ] || { printf 'This release archive already exists; use a new build number.\n' >&2; exit 1; }
 ditto -c -k --sequesterRsrc --keepParent "$KLAR_APP" "$KLAR_ARCHIVE"
 if [ -n "${KLAR_RELEASE_NOTES:-}" ]; then cp "$KLAR_RELEASE_NOTES" "${KLAR_ARCHIVE%.zip}.md"; fi
-KLAR_FLAGS=(--account "$KLAR_KEY_ACCOUNT" --download-url-prefix "$KLAR_DOWNLOAD_PREFIX" --versions "$KLAR_BUILD" --maximum-versions 5)
+# Keep published versions available; pruning would remove their hosted files at staging.
+KLAR_FLAGS=(--account "$KLAR_KEY_ACCOUNT" --download-url-prefix "$KLAR_DOWNLOAD_PREFIX" --versions "$KLAR_BUILD" --maximum-versions 0)
 case "$KLAR_RELEASE_KIND" in
   major) KLAR_FLAGS+=(--major-version "$KLAR_BUILD") ;;
   critical) KLAR_FLAGS+=(--critical-update-version "") ;;

@@ -145,7 +145,7 @@ Daher vor der Vorbereitung:
 1. Sicherstellen, dass `Artifacts/updates/` den überprüften bisherigen signierten `appcast.xml` **und** dessen referenzierte Archive, Release Notes und gegebenenfalls Deltas enthält.
 2. Lokale Archivdateien gegen den gesicherten Live-Stand prüfen. Fehlende Dateien vom bekannten Update-Host laden und verifizieren. Keine unbekannten/unveröffentlichten Kandidaten versehentlich als historische Releases übernehmen.
 3. Vorhandene Dateien und den bisherigen Feed separat sichern. Ein frischer Ausgabeordner muss mit dem bisherigen Feed **und seinen Dateien** befüllt werden.
-4. Die Liste der zu erhaltenden Builds ausdrücklich festhalten. Das aktuelle Skript verwendet `--maximum-versions 5`. Sobald mehr Einträge erhalten werden sollen, diese Grenze vor der Generierung bewusst anpassen; keine unbemerkte Entfernung alter Downloads akzeptieren.
+4. Die Liste der zu erhaltenden Builds ausdrücklich festhalten. Das Skript verwendet `--maximum-versions 0`, damit Sparkle alle vorhandenen Einträge erhält. Vor dem Hochladen prüfen, dass weiterhin sämtliche bisherigen Downloads referenziert und bytegleich vorhanden sind; alte Versionen nur in einem ausdrücklich geplanten Aufräumschritt entfernen.
 
 Lege den Release-Typ fest:
 
