@@ -21,9 +21,12 @@ All **176 Swift tests passed** (139 core + 37 app), including existing cancellat
 
 - App: `Artifacts/overnight-2026-10-20/Candidate-build8/Sinnfaden.app`.
 - Signed archive/feed/notes: `Artifacts/overnight-2026-10-20/Release-build8`.
+- Publication preparation: `Release-publish-build8` and independently verified `Site-build8` retain the exact previously published build-6 archive alongside build 8. Delta generation is disabled so the offered download is the tested full archive. Appcast, both archives and notes pass signature/length/hosting-limit checks. Build-8 ZIP SHA-256 is `0941dfe72a4a9ebf09a5532090eaf5ca7cd43c4a8d1f84018df55673338906dc` (3,684,416 bytes); evidence is `Artifacts/postapproval-build8-verification.log` and `release-build8-verification.json`.
 - Exact-archive isolated test: `InstallTarget-build8`, `UpdateFeed-build8`, `UpdateCheck-build8.app`, loopback port 8769. Download/extraction and signature checks passed; replacement was started at 07:10. Check the target before publication. Installer PIDs 34447/34448 and server PID 34419 were observed; do not interrupt replacement.
 - The rebuilt app is waiting for its Keychain read; Jonas has been asked about its new prompt. Do not bypass access checks or copy credentials from another process.
 - Build 7 is preserved as a tested installation artifact but **must not be published**, because live inference reproduced the remaining bug. Build 8 needs a successful live retest and exact-archive installation/startup check before publication.
 - Production remains **0.4.2 / 6**. The reporting Worker is already live. No paid services, new credentials or account replacement were introduced.
+
+At 07:12 the separate target still reports build 6; its installer and loopback server remain active. The build-8 app is responsive but still waiting for the Keychain read. Source commit `7fc7faa` is pushed. Reporting and release-staging suites also pass again (17 + 5), bringing the current automated total to **198 passing tests**. No live build-8 inference success or completed build-8 installation is claimed. The two earlier local update servers were stopped after their corresponding transactions completed.
 
 Next: verify build-8 Keychain restoration, retry the generic prompt and a bounded set of synthetic tasks, complete the installation/startup check, then publish only the exact tested archive with the previous published release retained. Keep user work and the existing account intact.
