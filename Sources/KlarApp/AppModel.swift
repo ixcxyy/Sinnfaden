@@ -280,7 +280,14 @@ final class AppModel: ObservableObject {
             do {
                 let result = try await CoachPipeline.run(original: original, generate: { @MainActor [weak self] instructions, prompt in
                     guard let self, self.activeAttempt == id, self.connection.accountID == requestAccount else { throw CancellationError() }
-                    return try await self.connection.generate(instructions: instructions + "\nLernangebot: " + learningInstruction, input: prompt, model: requestModel) { _ in }
+                    return try await self.connection.generate(instructions: instructions + "\nLernangebot: " + learningInstruction, input: prompt, model: requestModel) { [weak self] count in
+                        guard count > 0 else { return }
+                        Task { @MainActor in
+                            guard let self, self.activeAttempt == id, self.connection.accountID == requestAccount,
+                                  self.phase == .generating, self.progressMessage == "Dein Vorschlag entsteht …" else { return }
+                            self.progressMessage = "Die Antwort kommt an. Dein Prompt wird fertiggestellt …"
+                        }
+                    }
                 }, onStage: { [weak self] stage in
                     Task { @MainActor in
                         guard let self, self.activeAttempt == id, self.connection.accountID == requestAccount else { return }
@@ -301,13 +308,7 @@ final class AppModel: ObservableObject {
                 })
                 try Task.checkCancellation()
                 guard self.activeAttempt == id, self.connection.accountID == requestAccount else { return }
-                self.response = result; self.editedPrompt = result.prompt
-                self.solutionRevealed = result.exercise == nil || result.status == .already_good
-                self.showExercise = result.exercise != nil
-                self.phase = result.status == .needs_clarification ? .clarifying : .showingResult
-                self.currentEntry?.response = result
-                self.currentEntry?.outcome = result.status.rawValue
-                self.saveCurrent()
+                self.presentCoachResult(result)
                 self.activeAttempt = nil
             } catch {
                 guard self.activeAttempt == id, self.connection.accountID == requestAccount else { return }
@@ -328,6 +329,21 @@ final class AppModel: ObservableObject {
                 self.saveCurrent()
             }
         }
+    }
+
+    /// Shared by connected generation and the local demo so they expose the same result.
+    func presentCoachResult(_ result: CoachResponse) {
+        response = result
+        editedPrompt = result.prompt
+        // Building a prompt is the primary action. Practice stays available below it,
+        // never as a prerequisite for seeing, filling, editing or copying the result.
+        solutionRevealed = result.status != .needs_clarification
+        showExercise = false
+        exerciseHelp = result.status == .improved && result.exercise != nil
+        phase = result.status == .needs_clarification ? .clarifying : .showingResult
+        currentEntry?.response = result
+        currentEntry?.outcome = result.status.rawValue
+        saveCurrent()
     }
 
     /// Demo only: plays the same stages with the bundled example response. No request is sent.
@@ -358,14 +374,7 @@ final class AppModel: ObservableObject {
                                 segments: [PromptSegment(id: "s1", text: self.submittedOriginal)],
                                 exercise: CoachExercise(id: "ex1", question: "Wie würdest du eine ähnliche Anfrage für eine freundliche Absage formulieren?", category: "Transfer"))
                 : DemoContent.response
-            self.response = result
-            self.editedPrompt = result.prompt
-            self.solutionRevealed = true
-            self.exerciseHelp = result.status == .improved && result.exercise != nil
-            self.phase = .showingResult
-            self.currentEntry?.response = result
-            self.currentEntry?.outcome = result.status.rawValue
-            self.saveCurrent()
+            self.presentCoachResult(result)
             self.activeAttempt = nil
         }
     }
