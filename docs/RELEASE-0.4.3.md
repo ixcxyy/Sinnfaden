@@ -2,6 +2,8 @@
 
 **Verified 20 October 2026, 05:17 Europe/Vienna. Unpublished.**
 
+Final status check at **06:26 Vienna**: the separate installation target remains build 6, the installer remains stalled, and this package is still unpublished. All subsequent commits after package preparation change documentation only. The night ends at 06:30 with no further source edits; the installed/published update and connected-account quality gates remain open.
+
 The app changes through source commit `6977f5a` are pushed to private `ixcxyy/Sinnfaden`. The final candidate was rebuilt from clean checkout `75c9cad` (documentation only after that code commit) at `Artifacts/overnight-2026-10-20/Candidate-final/Sinnfaden.app` (0.4.3, build 7). Keep the existing design and free hosting configuration. If source changes again, rebuild, retest and prepare a new local archive before updating this handoff; never replace published bytes.
 
 ## What is ready
