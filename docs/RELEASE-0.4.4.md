@@ -1,5 +1,7 @@
 # Sinnfaden 0.4.4 / build 9 — prompt visibility fix
 
+**Installed, live-tested and published on 20 October 2026 at 19:58 Vienna.** The Applications copy is running with the existing ChatGPT account. The public feed serves build 9, retaining builds 8 and 6.
+
 ## Reproduction and fix
 
 The installed build 8 successfully generated a response to the saved generic appointment-email prompt, but hid the finished prompt and its input fields behind an automatically opened “Selbst ausprobieren” exercise. The user had to find “Vorschlag ansehen” before the requested result appeared. The demo already showed results immediately, which concealed this live/demo difference in earlier native checks.
@@ -15,22 +17,21 @@ No visual styling, provider credentials, model selection or response-validation 
 - **201 automated tests passed:** 179 Swift, 17 relay, 5 release-staging. Evidence: `Artifacts/prompt-visibility-before.log`, `prompt-visibility-after.log`, `prompt-fix-relay-tests.log`, `prompt-fix-release-tests.log`.
 - Manual diff review, release compilation, deep/strict signing checks and the local AST graph update passed.
 - Native build-9 demo check: the full result and controls appeared immediately without pressing reveal or completing practice. Selecting the time option and filling the name updated the prompt and completed its fields. Evidence: `Artifacts/prompt-fix-build9/native-visible-result.txt` and `.png`. This is a local UI check, not a real build-9 inference claim.
-- Exact signed package and combined feed: `Artifacts/prompt-fix-build9/Release` and `Publish`; old published builds 6 and 8 are retained unchanged. All six referenced files passed staging/signature checks. Exact hashes are in `Artifacts/prompt-fix-build9/verification.json`. `Artifacts/update-site` contains the verified candidate files; they have **not** been deployed.
+- Exact signed package and combined feed: `Artifacts/prompt-fix-build9/Release` and `Publish`; old published builds 6 and 8 are retained unchanged. All six referenced files passed staging/signature checks. Exact hashes are in `Artifacts/prompt-fix-build9/verification.json`. The same files were deployed and downloaded again over HTTPS; every size, SHA-256 hash and Ed25519 signature passed verification.
 - The reporting Worker accepts build 9 alongside supported prior releases. Deployment `71b625dd-588c-41bc-bab7-62fb084d8bfb`. No new issue was created for this check.
+- **Live installed-app test passed:** `/Applications/Sinnfaden.app` restored the existing saved ChatGPT account, generated a response to the generic appointment-email prompt, and immediately displayed the improved prompt, three generated input fields, copy/edit controls and collapsed optional practice. The incoming-response progress message also appeared. Evidence: `Artifacts/prompt-fix-build9/installed-live-result.txt` and `.png`.
+- The running app's **Nach Updates suchen …** displayed “Sinnfaden 0.4.4 is currently the newest version available.” Evidence: `Artifacts/prompt-fix-build9/installed-update-check.txt` and `.png`.
 
-## Installation status at 18:57 Vienna, 20 October
+## Completed installation and publication
 
-The rebuilt app's saved-login read was waiting in Keychain; its settings were closed and it was quit normally. No new login, credential extraction or permission bypass was attempted. Build 9 has not yet completed a real connected-account generation.
+The two operations that were waiting in macOS file replacement at 18:57 completed before the 19:53 inspection. Their installer processes exited. The Applications installation command returned exit code 0. The observations established a delay in `rename` / `renamex_np`, but not its underlying macOS cause; no security setting was disabled.
 
-Two independent installation operations are pending inside macOS file rename:
+1. **Separate Sparkle copy:** the exact signed build-9 archive replaced build 8 in `Artifacts/prompt-fix-build9/InstallTarget/Sinnfaden.app`. Deep/strict code-sign verification passed, and its executable matches the release candidate. It was started explicitly in demo mode, reached the main screen and quit normally with exit code 0. The local test server was stopped after completion.
+2. **Applications copy:** `/Applications/Sinnfaden.app` is **0.4.4/build 9**, installed from the same signed archive. Deep/strict verification and executable identity checks passed. The old build 8 is retained at `Artifacts/prompt-fix-build9/PreviousInstalled/Sinnfaden.app`. Account/history storage was not replaced. Saved-login restoration completed, followed by the successful live prompt test above. The app is left open for the user.
+3. **Public update:** deployment `29f85247-ed52-4f28-ad0a-49aa3333c508` serves the verified files through the existing free static Worker. The public feed lists builds **9, 8 and 6**. All six downloaded files match the verified candidate hashes and signatures. Exact published bytes are retained in `Artifacts/updates`; older archives were not changed.
 
-1. **Separate Sparkle copy:** `Artifacts/prompt-fix-build9/InstallTarget/Sinnfaden.app` is still build 8. The exact signed build-9 archive was downloaded, verified, extracted and installation confirmed through the helper. Installer PIDs 62333/62334 remain active; a process sample shows the installer in `renamex_np`. Local test server PID 62289 serves port 8770. Do not relaunch the closed `UpdateCheck.app` or interrupt the replacement.
-2. **Applications copy:** `/Applications/Sinnfaden.app` is still build 8. The replacement command has verified and extracted the build-9 archive but is waiting to move the old app to `Artifacts/prompt-fix-build9/PreviousInstalled/Sinnfaden.app`. Python PID 62759 / execution session 76536 is in `rename`; the backup does not yet exist. The script installs the verified new bundle after preserving the old one and restores the old path if the second rename fails. Do not kill this operation or start another replacement of the same app.
+Published build-9 archive: **3,685,250 bytes**, SHA-256 `9df8e58bcaf3896a2bbb38635b8262e9f9a447c5796803031b27d71f186344b0`.
 
-These observations establish where the operations are waiting, not which macOS permission or service is responsible. No current prompt requesting approval was confirmed. The public update feed remains **0.4.3/build 8**. Publication of build 9 is held until the separate installation gate finishes. Both overnight automations remain paused.
+## Remaining limitations
 
-## Finish after macOS releases the operations
-
-Inspect actual processes and both bundle versions first. Once the separate target is build 9, verify its deep/strict signature and executable identity against `Candidate/Sinnfaden.app`; start it explicitly in demo mode and quit normally. Stop the local server only after its transaction is complete. Confirm the Applications copy is build 9, then open that exact path, preserve the saved account and verify the visible live result when access is available.
-
-Only then publish the already verified `Artifacts/update-site` using the existing free update Worker. Verify the public feed and every referenced download against the candidate hashes, preserve immutable archive bytes in `Artifacts/updates`, and record deployment and installation evidence here. Never replace the published build-8 archive or claim a pending rename is a completed installation.
+The development app remains ad hoc signed and not Apple-notarized; Sparkle authenticates the update with the existing Ed25519 key. Future rebuilt apps can still require macOS Keychain approval, and the cause of the earlier file-replacement delay has not been established. No paid hosting, signing membership or API service was added. Both overnight automations remain paused.
