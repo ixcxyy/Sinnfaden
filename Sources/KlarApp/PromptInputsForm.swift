@@ -19,7 +19,7 @@ struct PromptInputsForm: View {
                 ProgressRing(progress: inputs.isEmpty ? 1 : Double(answered) / Double(inputs.count))
                     .frame(width: 42, height: 42)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(answered == inputs.count ? "Alles drin – dein Prompt ist komplett." : "Noch \(inputs.count - answered) \(inputs.count - answered == 1 ? "Angabe" : "Angaben"), dann ist alles drin")
+                    Text(model.promptUseError != nil ? "Kürze eine Angabe, damit dein Prompt passt." : answered == inputs.count ? "Alles drin – dein Prompt ist komplett." : "Noch \(inputs.count - answered) \(inputs.count - answered == 1 ? "Angabe" : "Angaben"), dann ist alles drin")
                         .font(.system(size: 16, weight: .semibold))
                         .contentTransition(.opacity)
                         .animation(.easeInOut(duration: 0.25), value: answered)

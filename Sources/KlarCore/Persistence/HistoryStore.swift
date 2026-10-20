@@ -21,7 +21,12 @@ public struct HistoryEntry: Codable, Identifiable, Equatable, Sendable {
         self.inputValues = inputValues
         self.inputSelections = inputSelections
     }
-    public var visiblePrompt: String { editedPrompt ?? response.map { $0.filled(with: inputValues ?? $0.suggestedInputValues).prompt } ?? "" }
+    public var visiblePrompt: String {
+        if let editedPrompt { return editedPrompt }
+        guard let response else { return "" }
+        // Oversized field drafts stay stored verbatim; a history preview never expands them.
+        return (try? response.filled(with: inputValues ?? response.suggestedInputValues).prompt) ?? response.prompt
+    }
     public var annotationsAreCurrent: Bool { editedPrompt == nil }
 }
 

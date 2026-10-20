@@ -99,8 +99,12 @@ public struct CoachResponse: Codable, Equatable, Sendable {
 
     /// Matches placeholders only in the original prompt, never in inserted user text.
     /// Unanswered fields stay visible, and segment IDs survive even when a token spans segments.
-    public func filled(with values: [String: String]) -> CoachResponse {
+    public func filled(with values: [String: String]) throws -> CoachResponse {
         var copy = self
+        let text = prompt
+        let source = text as NSString
+        let limit = CoachValidator.maximumPromptLength
+        guard source.length <= limit else { throw CoachValidationError.invalid("Der Vorschlag ist zu lang.") }
         var replacements: [String: String] = [:]
         for input in inputs {
             guard CoachValidator.validPlaceholder(input.placeholder),
@@ -108,7 +112,19 @@ public struct CoachResponse: Codable, Equatable, Sendable {
             replacements[input.placeholder] = value
         }
         guard !replacements.isEmpty else { return copy }
-        let source = prompt as NSString
+        let matches = Self.placeholderPattern.matches(in: text, range: NSRange(location: 0, length: source.length))
+            .filter { replacements[source.substring(with: $0.range)] != nil }
+        let lengths = replacements.mapValues { $0.utf16.count }
+        // Account for every removed token before adding values, so exact-boundary fills
+        // remain valid even when another replacement makes the source shorter.
+        var filledLength = source.length - matches.reduce(0) { $0 + $1.range.length }
+        for match in matches {
+            let length = lengths[source.substring(with: match.range)] ?? 0
+            guard length <= limit - filledLength else {
+                throw CoachValidationError.invalid("Die Feldangaben machen den ausgefüllten Prompt zu lang. Kürze sie bitte; deine vollständigen Eingaben bleiben erhalten. Die Vorschau zeigt bis dahin die Platzhalter.")
+            }
+            filledLength += length
+        }
         var offset = 0
         let ranges = segments.map { segment -> NSRange in
             let length = (segment.text as NSString).length
@@ -116,7 +132,7 @@ public struct CoachResponse: Codable, Equatable, Sendable {
             return NSRange(location: offset, length: length)
         }
         // Work backwards so replacements do not invalidate earlier offsets in the same segment.
-        for match in Self.placeholderPattern.matches(in: prompt, range: NSRange(location: 0, length: source.length)).reversed() {
+        for match in matches.reversed() {
             guard let value = replacements[source.substring(with: match.range)] else { continue }
             for (index, range) in ranges.enumerated() {
                 let overlap = NSIntersectionRange(range, match.range)
@@ -157,6 +173,7 @@ public enum CoachValidationError: LocalizedError, Equatable {
 
 public enum CoachValidator {
     public static let maximumInputLength = 24_000
+    public static let maximumPromptLength = 48_000
     public static let maximumResponseBytes = 256_000
     public static func decode(_ data: Data, original: String) throws -> CoachResponse {
         guard data.count <= maximumResponseBytes else { throw CoachValidationError.invalid("Die Antwort ist zu groß.") }
@@ -174,7 +191,7 @@ public enum CoachValidator {
         try require(nonempty(response.coachMessage) && safeText(response.coachMessage, limit: 1_200), "Die Rückmeldung fehlt oder ist zu lang.")
         try require(original.utf16.count <= maximumInputLength, "Dein Prompt ist für diesen Versuch zu lang.")
         try require(response.segments.count <= 160 && response.changes.count <= 40, "Die Antwort enthält zu viele Textstellen.")
-        try require(response.prompt.utf16.count <= 48_000, "Der Vorschlag ist zu lang.")
+        try require(response.prompt.utf16.count <= maximumPromptLength, "Der Vorschlag ist zu lang.")
         try require(Set(response.segments.map(\.id)).count == response.segments.count, "Textstellen haben doppelte Kennungen.")
         try require(Set(response.changes.map(\.id)).count == response.changes.count, "Änderungen haben doppelte Kennungen.")
         for segment in response.segments {

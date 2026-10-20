@@ -220,6 +220,9 @@ struct ResultSplit: View {
         let layout = split ? AnyLayout(HStackLayout(alignment: .top, spacing: 22)) : AnyLayout(VStackLayout(alignment: .leading, spacing: 22))
         VStack(alignment: .leading, spacing: 22) {
             header
+            if let error = model.storageError { CoachNotice(text: error, symbol: "externaldrive.badge.exclamationmark") }
+            if let error = model.errorMessage { CoachNotice(text: error, symbol: "exclamationmark.circle") }
+            if let error = model.promptUseError { CoachNotice(text: error, symbol: "exclamationmark.circle") }
             layout {
                 // No appear animation here: it would animate the column's first layout too, and
                 // the hosted native text would stay where that animation started.
@@ -353,12 +356,15 @@ struct ResultSplit: View {
     private var actionBar: some View {
         VStack(alignment: .leading, spacing: 10) {
             HandoffButton(service: model.handoff, prompt: model.visiblePrompt, expanded: true)
+                .disabled(!model.canUsePrompt)
             HStack(spacing: 8) {
                 SheetAction(symbol: model.copied ? "checkmark" : "doc.on.doc", title: model.copied ? "Kopiert" : "Kopieren") { model.copyPrompt() }
+                    .disabled(!model.canUsePrompt)
                 SheetAction(symbol: model.editing ? "checkmark" : "pencil", title: model.editing ? "Fertig" : "Bearbeiten") {
                     if model.editing { model.editing = false } else { model.beginEditing() }
                 }
                 SheetAction(symbol: "bookmark", title: "Vorlage") { model.saveVisibleRecipe() }
+                    .disabled(!model.canUsePrompt)
             }
             HandoffStatus(service: model.handoff, prompt: model.visiblePrompt)
         }

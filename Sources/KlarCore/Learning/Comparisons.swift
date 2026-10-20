@@ -24,7 +24,7 @@ public struct ComparisonPlan: Codable, Equatable, Sendable {
             throw LearningDataError.invalid("Für einen Vergleich braucht es einen tatsächlich geänderten Vorschlag.")
         }
         // Validate the annotated source first; inserted answers are user text, not new schema metadata.
-        let response = response.filled(with: inputValues)
+        let response = try response.filled(with: inputValues)
         guard response.prompt != original, CoachValidator.safeText(response.prompt, limit: 48_000) else {
             throw LearningDataError.invalid("Der ausgefüllte Vorschlag ist unverändert, zu lang oder enthält ungültige Steuerzeichen.")
         }

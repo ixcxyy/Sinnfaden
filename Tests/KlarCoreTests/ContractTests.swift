@@ -2,6 +2,28 @@ import XCTest
 @testable import KlarCore
 
 final class ContractTests: XCTestCase {
+    func testRepeatedFieldsRejectExpansionBeyondThePromptLimit() throws {
+        let response = CoachResponse(status: .improved, coachMessage: "Ergänze den Ort.",
+            segments: [PromptSegment(id: "s1", text: String(repeating: "[Ort] ", count: 20))],
+            inputs: [PromptInput(id: "place", label: "Ort", kind: .text, placeholder: "[Ort]", why: "Der Ort fehlt.")])
+        XCTAssertThrowsError(try response.filled(with: ["place": String(repeating: "ä", count: 2_500)]))
+        XCTAssertEqual(response.prompt, String(repeating: "[Ort] ", count: 20))
+    }
+
+    func testFieldExpansionAcceptsTheExactUTF16LimitAndCountsAllReplacements() throws {
+        let response = CoachResponse(status: .improved, coachMessage: "Ergänze beide Angaben.",
+            segments: [PromptSegment(id: "s1", text: "[A][B]")], inputs: [
+                PromptInput(id: "a", label: "A", kind: .text, placeholder: "[A]", why: "A fehlt."),
+                PromptInput(id: "b", label: "B", kind: .text, placeholder: "[B]", why: "B fehlt.")
+            ])
+        let exact = try response.filled(with: ["a": String(repeating: "😀", count: 23_999), "b": "äö"])
+        XCTAssertEqual(exact.prompt.utf16.count, 48_000)
+        XCTAssertEqual(exact.prompt.suffix(2), "äö")
+        XCTAssertThrowsError(try response.filled(with: ["a": String(repeating: "😀", count: 23_999), "b": "äöü"]))
+        let shortened = try response.filled(with: ["a": "A", "b": "B"])
+        XCTAssertEqual(shortened.prompt, "AB")
+    }
+
     func testGermanDemoDecodesAndCopiesSameSegments() throws {
         let data = try JSONEncoder().encode(DemoContent.response)
         let response = try CoachValidator.decode(data, original: DemoContent.original)
@@ -12,7 +34,7 @@ final class ContractTests: XCTestCase {
     }
 
     func testGeneratedInputsFillTheirPlaceholdersAndKeepSegments() throws {
-        let filled = DemoContent.response.filled(with: ["name": "Alex", "zeitraum": "nächste Woche vormittags", "ton": ""])
+        let filled = try DemoContent.response.filled(with: ["name": "Alex", "zeitraum": "nächste Woche vormittags", "ton": ""])
         XCTAssertTrue(filled.prompt.contains("Verwende für meinen Namen Alex."))
         XCTAssertTrue(filled.prompt.contains("für nächste Woche vormittags."))
         XCTAssertTrue(filled.prompt.contains("[Ton]"), "An empty answer keeps the visible placeholder")
@@ -20,30 +42,30 @@ final class ContractTests: XCTestCase {
         XCTAssertEqual(filled.changes, DemoContent.response.changes)
     }
 
-    func testFillingFieldsNeverReinterpretsTheUsersTextAsAnotherPlaceholder() {
+    func testFillingFieldsNeverReinterpretsTheUsersTextAsAnotherPlaceholder() throws {
         let response = CoachResponse(status: .improved, coachMessage: "Ergänze die Angaben.",
             segments: [PromptSegment(id: "s1", text: "[Name]: [Text]. Noch einmal: [Name]")], inputs: [
                 PromptInput(id: "name", label: "Name", kind: .text, placeholder: "[Name]", why: "Wer ist gemeint?"),
                 PromptInput(id: "text", label: "Text", kind: .long_text, placeholder: "[Text]", why: "Was ist wichtig?")
             ])
-        let filled = response.filled(with: ["name": "[Text]", "text": "  Grüße 👩🏽‍💻\n[Name]  "])
+        let filled = try response.filled(with: ["name": "[Text]", "text": "  Grüße 👩🏽‍💻\n[Name]  "])
         XCTAssertEqual(filled.prompt, "[Text]:   Grüße 👩🏽‍💻\n[Name]  . Noch einmal: [Text]")
         XCTAssertEqual(response.prompt, "[Name]: [Text]. Noch einmal: [Name]")
         var reversed = response
         reversed.inputs.reverse()
-        XCTAssertEqual(reversed.filled(with: ["name": "[Text]", "text": "  Grüße 👩🏽‍💻\n[Name]  "]).prompt, filled.prompt)
+        XCTAssertEqual(try reversed.filled(with: ["name": "[Text]", "text": "  Grüße 👩🏽‍💻\n[Name]  "]).prompt, filled.prompt)
     }
 
-    func testFieldSplitAcrossSegmentsStillFillsAndPreservesSegmentIdentities() {
+    func testFieldSplitAcrossSegmentsStillFillsAndPreservesSegmentIdentities() throws {
         let response = CoachResponse(status: .improved, coachMessage: "Ergänze den Namen.", segments: [
             PromptSegment(id: "before", text: "Grüße 👩🏽‍💻 [Na"),
             PromptSegment(id: "middle", text: "me"),
             PromptSegment(id: "after", text: "]! Und [Name].")
         ], inputs: [PromptInput(id: "name", label: "Name", kind: .text, placeholder: "[Name]", why: "Wer ist gemeint?")])
-        let filled = response.filled(with: ["name": "Özdemir"])
+        let filled = try response.filled(with: ["name": "Özdemir"])
         XCTAssertEqual(filled.prompt, "Grüße 👩🏽‍💻 Özdemir! Und Özdemir.")
         XCTAssertEqual(filled.segments.map(\.id), response.segments.map(\.id))
-        XCTAssertEqual(response.filled(with: ["name": " \n "]).prompt, response.prompt)
+        XCTAssertEqual(try response.filled(with: ["name": " \n "]).prompt, response.prompt)
     }
 
     func testInputCannotReplaceAnOrdinaryWordOrAnInvalidBracketToken() {

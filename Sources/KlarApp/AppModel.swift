@@ -30,18 +30,22 @@ final class AppModel: ObservableObject {
                 inputSelections = inputSelections.filter { oldValue[$0.key] == inputValues[$0.key] }
             }
             copied = false
+            let previousPrompt = displayedResponse?.prompt
+            refreshDisplayedResponse()
             // Keep an untouched editor in sync with the visible form. Comparing its
             // actual text also protects typing whose SwiftUI notification is still pending.
-            if editing, !manuallyEdited, let response,
-               editedPrompt == response.filled(with: oldValue).prompt {
-                editedPrompt = response.filled(with: inputValues).prompt
+            if editing, !manuallyEdited, let previousPrompt, editedPrompt == previousPrompt {
+                editedPrompt = displayedResponse?.prompt ?? ""
             }
             saveCurrent()
         }
     }
     @Published private(set) var inputSelections: [String: [String]] = [:]
-    /// The suggestion with every answered placeholder filled in.
-    var displayedResponse: CoachResponse? { response.map { $0.filled(with: inputValues) } }
+    /// Filled once per field change, with the original template retained on overflow.
+    @Published private(set) var displayedResponse: CoachResponse?
+    @Published private(set) var inputExpansionError: String?
+    var promptUseError: String? { manuallyEdited ? nil : inputExpansionError }
+    var canUsePrompt: Bool { promptUseError == nil && !visiblePrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     var openRequiredInputs: [PromptInput] {
         (response?.inputs ?? []).filter { $0.required && (inputValues[$0.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     }
@@ -115,6 +119,18 @@ final class AppModel: ObservableObject {
         defer { restoringInputValues = false }
         inputValues = saved ?? response?.suggestedInputValues ?? [:]
         inputSelections = selections ?? [:]
+        refreshDisplayedResponse()
+    }
+
+    private func refreshDisplayedResponse() {
+        guard let response else { displayedResponse = nil; inputExpansionError = nil; return }
+        do {
+            displayedResponse = try response.filled(with: inputValues)
+            inputExpansionError = nil
+        } catch {
+            displayedResponse = response
+            inputExpansionError = error.localizedDescription
+        }
     }
 
     func selectedOptions(for input: PromptInput) -> Set<String>? {
@@ -367,13 +383,17 @@ final class AppModel: ObservableObject {
     func revealSolution() { solutionRevealed = true; exerciseHelp = true; showExercise = false }
 
     func compare(_ change: PromptChange) {
-        guard let response, !manuallyEdited else { return }
+        guard let response, !manuallyEdited, canUsePrompt else { return }
         learning.prepareComparison(original: submittedOriginal, response: response, change: change, inputValues: inputValues); page = .laboratory
     }
 
-    func saveVisibleRecipe() { learning.createRecipe(from: visiblePrompt); page = .recipes }
+    func saveVisibleRecipe() {
+        guard canUsePrompt else { return }
+        learning.createRecipe(from: visiblePrompt); page = .recipes
+    }
 
     func copyPrompt() {
+        guard canUsePrompt else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(visiblePrompt, forType: .string)
         copied = true

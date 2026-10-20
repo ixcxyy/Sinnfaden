@@ -38,7 +38,7 @@ final class LearningFeaturesTests: XCTestCase {
         XCTAssertEqual(isolated.baseline, original)
         let whole = try ComparisonPlan.make(original: original, response: response, inputValues: values)
         XCTAssertEqual(whole.kind, .wholePrompt)
-        XCTAssertEqual(whole.variant, response.filled(with: values).prompt)
+        XCTAssertEqual(whole.variant, try response.filled(with: values).prompt)
         XCTAssertTrue(response.prompt.contains("[Anzahl]"), "Preparing a comparison must not rewrite the saved response")
     }
 

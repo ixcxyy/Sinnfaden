@@ -33,6 +33,66 @@ final class AppModelPersistenceTests: XCTestCase {
         guard sqlite3_exec(database, sql, nil, nil, nil) == SQLITE_OK else { throw HistoryStoreError.unavailable }
     }
 
+    func testOversizedFieldDraftStaysSavedWithoutExpandingThePreviewOrOpeningARecipe() async throws {
+        let root = try temporaryDirectory()
+        let store = try HistoryStore(accountID: "demonstration", baseURL: root)
+        var saved = entry()
+        saved.response?.segments = [PromptSegment(id: "s1", text: String(repeating: "[Ort] ", count: 20))]
+        try store.save(saved)
+        let app = model(at: root)
+        app.select(saved)
+        let oversized = String(repeating: "ä", count: 2_500)
+        app.inputValues["place"] = oversized
+        XCTAssertLessThanOrEqual(app.visiblePrompt.utf16.count, 48_000)
+        XCTAssertNotNil(app.promptUseError)
+        XCTAssertFalse(app.canUsePrompt)
+        XCTAssertFalse(app.copied)
+        app.saveVisibleRecipe()
+        XCTAssertEqual(app.page, .coach)
+        let restored = try XCTUnwrap(store.entries().first { $0.id == saved.id })
+        XCTAssertEqual(restored.inputValues?["place"], oversized)
+        XCTAssertLessThanOrEqual(restored.visiblePrompt.utf16.count, 48_000)
+        let reopened = model(at: root)
+        reopened.select(restored)
+        XCTAssertEqual(reopened.inputValues["place"], oversized)
+        XCTAssertNotNil(reopened.promptUseError)
+        XCTAssertLessThanOrEqual(reopened.visiblePrompt.utf16.count, 48_000)
+        reopened.inputValues["place"] = "am See"
+        XCTAssertEqual(reopened.visiblePrompt, String(repeating: "am See ", count: 20))
+        XCTAssertNil(reopened.promptUseError)
+        XCTAssertTrue(reopened.canUsePrompt)
+    }
+
+    func testFieldOverflowKeepsEditorStateHonestAndPreservesAManualReplacement() async throws {
+        let root = try temporaryDirectory()
+        let app = model(at: root)
+        var saved = entry()
+        saved.response?.segments = [PromptSegment(id: "s1", text: String(repeating: "[Ort] ", count: 20))]
+        app.select(saved)
+        app.inputValues["place"] = "am See"
+        app.beginEditing()
+        app.inputValues["place"] = String(repeating: "ä", count: 2_500)
+        app.updateEditedPrompt() // The existing editor's change notification.
+        XCTAssertEqual(app.editedPrompt, saved.response?.prompt)
+        XCTAssertFalse(app.manuallyEdited)
+        XCTAssertFalse(app.canUsePrompt)
+        app.inputValues["place"] = "im Park"
+        XCTAssertEqual(app.editedPrompt, String(repeating: "im Park ", count: 20))
+        XCTAssertTrue(app.canUsePrompt)
+
+        app.editedPrompt = "Meine bewusst selbst geschriebene Anfrage."
+        app.updateEditedPrompt()
+        let oversized = String(repeating: "ä", count: 2_500)
+        app.inputValues["place"] = oversized
+        XCTAssertTrue(app.manuallyEdited)
+        XCTAssertTrue(app.canUsePrompt)
+        XCTAssertNil(app.promptUseError)
+        XCTAssertEqual(app.visiblePrompt, "Meine bewusst selbst geschriebene Anfrage.")
+        let restored = try XCTUnwrap(HistoryStore(accountID: "demonstration", baseURL: root).entries().first { $0.id == saved.id })
+        XCTAssertEqual(restored.visiblePrompt, app.visiblePrompt)
+        XCTAssertEqual(restored.inputValues?["place"], oversized)
+    }
+
     func testFailedHistoryWritesSurviveNavigationAndExportThenRetry() async throws {
         let root = try temporaryDirectory()
         let store = try HistoryStore(accountID: "demonstration", baseURL: root)
