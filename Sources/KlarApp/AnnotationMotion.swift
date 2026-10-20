@@ -74,7 +74,7 @@ struct AnnotationTiming {
 /// Tuned starting points. Position, contour and light deliberately use
 /// different speeds, close enough to read as one body.
 enum AnnotationTuning {
-    static let hoverDelay = 0.13
+    static let hoverDelay = 0.14
     static let leaveTolerance = 0.20
     static let textFadeOut = 0.075
     static let morphHandOff = 0.30
@@ -91,12 +91,19 @@ enum AnnotationTuning {
     static let retractNear = AnnotationTiming(0.29, 0.96)
     static let settle = AnnotationTiming(0.30, 0.86)
     // Cursor bubble: one clean body. Both sides share a spring, so it glides without distorting.
-    static let cursorLead = AnnotationTiming(0.17, 0.84)
-    static let cursorTrail = AnnotationTiming(0.17, 0.84)
-    static let cursorText = AnnotationTiming(0.17, 0.84)
+    // A short, damped follow: connected to the pointer, never trailing far behind it.
+    static let cursorLead = AnnotationTiming(0.15, 0.86)
+    static let cursorTrail = AnnotationTiming(0.15, 0.86)
+    static let cursorText = AnnotationTiming(0.15, 0.86)
+    // Formation (~300 ms): the leading edge first, one ~3 % overshoot, then rest.
+    static let cursorPopLead = AnnotationTiming(0.24, 0.74)
+    static let cursorPopTrail = AnnotationTiming(0.31, 0.80)
+    /// Text starts this far right of the hotspot (minus the bubble's 22 pt padding).
+    static let cursorTextInset: CGFloat = 6
+    static let cursorLineGap: CGFloat = 4
     static let cursorTip = AnnotationTiming(0.05, 0.95)
     static let cursorPop = AnnotationTiming(0.24, 0.74)
-    static let cursorRetract = AnnotationTiming(0.15, 0.95)
+    static let cursorRetract = AnnotationTiming(0.17, 0.95)
     static let cursorNeck: CGFloat = 10
 
     // Reading layer and light.

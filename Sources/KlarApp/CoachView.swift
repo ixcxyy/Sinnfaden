@@ -22,16 +22,19 @@ struct CoachView: View {
     var body: some View {
         ZStack {
             if model.busy {
+                // With flying words the stage appears at once: the words must match the editor
+                // in the very first frame. The result arrives as the body flattens and fades.
                 SendingView(message: model.progressMessage, validating: model.phase == .validating, draft: model.draft, launch: launch, cancel: model.cancel)
-                    .transition(.asymmetric(insertion: .opacity.animation(.easeOut(duration: 0.2)),
-                                            removal: .opacity.combined(with: .scale(scale: 1.25)).animation(.easeIn(duration: 0.35))))
+                    .transition(.asymmetric(insertion: launch == nil ? .opacity.animation(.easeOut(duration: 0.2)) : .identity,
+                                            removal: reduceMotion ? .opacity.animation(.easeOut(duration: 0.15))
+                                                : .modifier(active: Unfold(amount: 1), identity: Unfold(amount: 0)).animation(.easeIn(duration: 0.26))))
             } else if let response = model.response {
                 ResultSplit(model: model, response: response, wide: wide)
-                    .transition(.opacity.animation(.easeOut(duration: 0.35)))
+                    .transition(.opacity.animation(.easeOut(duration: 0.28).delay(0.06)))
             } else {
                 hero
                     .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 20)).animation(reduceMotion ? .easeOut(duration: 0.2) : .spring(response: 0.6, dampingFraction: 0.86)),
-                                            removal: reduceMotion ? .opacity : .modifier(active: SuckedIn(amount: 1), identity: SuckedIn(amount: 0)).animation(.easeIn(duration: 0.6))))
+                                            removal: reduceMotion ? .opacity : .modifier(active: SuckedIn(amount: 1), identity: SuckedIn(amount: 0)).animation(.easeOut(duration: 0.34))))
             }
         }
         // Each transition carries its own animation. A blanket animation on the state switch
@@ -44,9 +47,11 @@ struct CoachView: View {
         guard model.canSubmit else { return }
         if !reduceMotion {
             launch = WordLaunch(words: editor.capturedWords(), fontSize: model.fontSize + 2, start: Date())
+            editor.setTextHidden(true)
         }
+        // The request starts right away; the animation never delays it.
         model.improve()
-        if !model.busy { launch = nil }
+        if !model.busy { launch = nil; editor.setTextHidden(false) }
     }
 
     private var stateKey: Int { model.busy ? 1 : model.response == nil ? 0 : 2 }
@@ -154,9 +159,10 @@ struct SendingView: View {
                     .font(.system(size: 20, weight: .semibold))
                     .contentTransition(.opacity)
                     .animation(.easeInOut(duration: 0.3), value: message)
+                // Only the two states the app actually knows: the answer is being written, or it
+                // has arrived and is being checked locally.
                 HStack(spacing: 8) {
-                    stage("Lesen", done: true, active: false)
-                    stage("Formulieren", done: validating, active: !validating)
+                    stage("Vorschlag entsteht", done: validating, active: !validating)
                     stage("Prüfen", done: false, active: validating)
                 }
                 Text("„\(draft.prefix(90))\(draft.count > 90 ? "…" : "")“")
@@ -164,16 +170,12 @@ struct SendingView: View {
                     .frame(maxWidth: 460)
                 Button("Abbrechen", action: cancel).buttonStyle(SecondaryButtonStyle()).padding(.top, 6)
             }
-            // The words land first; the captions surface once the bubble has formed.
+            // Status and cancel are there from the first frame; they fade in quickly and never move.
             .opacity(captionsVisible ? 1 : 0)
-            .offset(y: captionsVisible || reduceMotion ? 0 : 14)
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 10)
-        .onAppear {
-            let delay = reduceMotion ? 0 : (launch.map { min(1.2, $0.duration * 0.75) } ?? 0.1)
-            withAnimation(.spring(response: 0.6, dampingFraction: 0.85).delay(delay)) { captionsVisible = true }
-        }
+        .onAppear { withAnimation(.easeOut(duration: reduceMotion ? 0.1 : 0.22)) { captionsVisible = true } }
     }
 
     private func stage(_ title: String, done: Bool, active: Bool) -> some View {
@@ -498,15 +500,25 @@ struct PracticeCard: View {
     }
 }
 
-/// The start page being drawn into the bubble: it shrinks toward the upper middle,
-/// loses focus and fades, a beat behind the flying words.
+/// The start page steps back while its words leave: a slight recession toward the gathering
+/// point and a fade. Restrained, so the words stay the event.
 private struct SuckedIn: ViewModifier {
     let amount: CGFloat
     func body(content: Content) -> some View {
         content
-            .scaleEffect(x: 1 - 0.78 * amount, y: 1 - 0.86 * amount, anchor: UnitPoint(x: 0.5, y: 0.38))
-            .blur(radius: 22 * amount)
-            .opacity(Double(1 - amount * amount))
+            .scaleEffect(1 - 0.04 * amount, anchor: UnitPoint(x: 0.5, y: 0.45))
+            .blur(radius: 5 * amount)
+            .opacity(Double(1 - amount))
+    }
+}
+
+/// The settled body flattens a little and fades as the result takes its place.
+private struct Unfold: ViewModifier {
+    let amount: CGFloat
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(x: 1 + 0.06 * amount, y: 1 - 0.12 * amount, anchor: .center)
+            .opacity(Double(1 - amount))
     }
 }
 

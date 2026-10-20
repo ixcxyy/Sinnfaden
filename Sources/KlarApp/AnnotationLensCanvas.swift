@@ -154,11 +154,11 @@ final class AnnotationLensCanvas: NSView {
         ambientShadow.shadowPath = path
         ambientShadow.shadowRadius = 7 + 10 * lift
         ambientShadow.shadowOffset = CGSize(width: -frame.light.x * 3 * lift, height: -(2 + 6 * lift))
-        ambientShadow.shadowOpacity = Float(solid ? 0.10 : 0.06 + 0.12 * lift)
+        ambientShadow.shadowOpacity = Float(solid ? 0.12 : 0.08 + 0.10 * lift)
         contactShadow.shadowPath = path
         contactShadow.shadowRadius = 2.2
         contactShadow.shadowOffset = CGSize(width: 0, height: -1)
-        contactShadow.shadowOpacity = Float(0.05 + 0.05 * (1 - min(1, lift)))
+        contactShadow.shadowOpacity = Float(0.10 + 0.06 * (1 - min(1, lift)))
 
         // Milky reading core with a feathered edge.
         core.path = frame.shape.corePath
@@ -221,47 +221,49 @@ final class AnnotationLensCanvas: NSView {
         outgoingHost?.alphaValue = frame.outgoingAlpha
     }
 
-    /// Ink-blue liquid: opaque enough to cover the words beneath, with a white rim light,
-    /// a softer inner glow and cyan transmission at the far edge.
+    /// Milky surface, the app's own material: nearly opaque white behind the text (readable over
+    /// any words), a cool blue floor, a faint white edge highlight and a soft blue-grey contact
+    /// shadow. The blue stays with the learning annotations: a light wash and the heading.
     private func updateMaterialColors() {
         solid = AnnotationAccessibility.reduceTransparency
         contrast = AnnotationAccessibility.increaseContrast
         let white = NSColor.white
-        let cyan = NSColor(srgbRed: 0.45, green: 0.88, blue: 1.0, alpha: 1)
-        let sky = NSColor(srgbRed: 0.38, green: 0.62, blue: 1.0, alpha: 1)
+        let milk = NSColor(srgbRed: 0.975, green: 0.982, blue: 0.996, alpha: 1)
+        let wash = NSColor.sinnAnnotationWash
         let blue = NSColor.sinnAnnotation
-        let deep = NSColor(srgbRed: 0.02, green: 0.16, blue: 0.42, alpha: 1)
+        let floor = NSColor(srgbRed: 0.80, green: 0.86, blue: 0.96, alpha: 1)
+        let shadow = NSColor(srgbRed: 0.10, green: 0.18, blue: 0.36, alpha: 1)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         material.isHidden = true
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            tint.fillColor = blue.withAlphaComponent(solid || contrast ? 1 : 0.97).cgColor
-            core.fillColor = sky.withAlphaComponent(0.35).cgColor
-            core.shadowColor = sky.cgColor
-            core.shadowOpacity = 0.55
+            tint.fillColor = milk.withAlphaComponent(solid || contrast ? 1 : 0.95).cgColor
+            core.fillColor = white.withAlphaComponent(0.7).cgColor
+            core.shadowColor = white.cgColor
+            core.shadowOpacity = 0.8
             core.isHidden = solid || contrast
-            depth.colors = [deep.withAlphaComponent(0.35).cgColor, blue.withAlphaComponent(0).cgColor, white.withAlphaComponent(solid ? 0.08 : 0.22).cgColor]
-            depth.locations = [0, 0.55, 1]
+            depth.colors = [floor.withAlphaComponent(solid ? 0.18 : 0.42).cgColor, wash.withAlphaComponent(0).cgColor, white.withAlphaComponent(0.5).cgColor]
+            depth.locations = [0, 0.5, 1]
             depth.startPoint = CGPoint(x: 0.5, y: 0); depth.endPoint = CGPoint(x: 0.5, y: 1)
-            caustic.colors = [cyan.withAlphaComponent(solid ? 0.1 : 0.35).cgColor, cyan.withAlphaComponent(0).cgColor]
+            caustic.colors = [wash.withAlphaComponent(solid ? 0.2 : 0.55).cgColor, wash.withAlphaComponent(0).cgColor]
             caustic.startPoint = CGPoint(x: 0.5, y: 0.5); caustic.endPoint = CGPoint(x: 1, y: 1)
-            gloss.colors = [white.withAlphaComponent(0.42).cgColor, white.withAlphaComponent(0.12).cgColor, white.withAlphaComponent(0).cgColor]
+            gloss.colors = [white.withAlphaComponent(0.55).cgColor, white.withAlphaComponent(0.15).cgColor, white.withAlphaComponent(0).cgColor]
             gloss.locations = [0, 0.45, 1]
             gloss.startPoint = CGPoint(x: 0.5, y: 0.5); gloss.endPoint = CGPoint(x: 1, y: 1)
-            band.colors = [white.withAlphaComponent(0.55).cgColor, sky.withAlphaComponent(0.4).cgColor,
-                           white.withAlphaComponent(0).cgColor, cyan.withAlphaComponent(0.45).cgColor]
+            band.colors = [white.withAlphaComponent(0.6).cgColor, white.withAlphaComponent(0.2).cgColor,
+                           white.withAlphaComponent(0).cgColor, wash.withAlphaComponent(0.5).cgColor]
             band.locations = [0, 0.3, 0.62, 1]
-            rim.colors = [white.cgColor, white.withAlphaComponent(0.6).cgColor, sky.withAlphaComponent(0.6).cgColor, cyan.cgColor]
-            rim.locations = [0, 0.32, 0.7, 1]
-            contrastEdge.strokeColor = white.cgColor
+            rim.colors = [white.cgColor, white.withAlphaComponent(0.7).cgColor, floor.withAlphaComponent(0.8).cgColor, blue.withAlphaComponent(0.28).cgColor]
+            rim.locations = [0, 0.35, 0.72, 1]
+            contrastEdge.strokeColor = blue.cgColor
             contrastEdge.isHidden = !contrast
-            tipGlow.colors = [white.withAlphaComponent(0.7).cgColor, cyan.withAlphaComponent(0.3).cgColor, blue.withAlphaComponent(0).cgColor]
+            tipGlow.colors = [wash.withAlphaComponent(0.9).cgColor, wash.withAlphaComponent(0.35).cgColor, wash.withAlphaComponent(0).cgColor]
             tipGlow.locations = [0, 0.45, 1]
             tipGlow.startPoint = CGPoint(x: 0.5, y: 0.5); tipGlow.endPoint = CGPoint(x: 1, y: 1)
             cursorDot.fillColor = white.cgColor
             cursorDot.strokeColor = blue.cgColor
-            ambientShadow.shadowColor = deep.cgColor
-            contactShadow.shadowColor = deep.cgColor
+            ambientShadow.shadowColor = shadow.cgColor
+            contactShadow.shadowColor = shadow.cgColor
         }
         CATransaction.commit()
     }

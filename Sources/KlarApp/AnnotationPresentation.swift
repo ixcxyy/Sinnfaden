@@ -77,6 +77,8 @@ final class AnnotationPresentation: NSObject, ObservableObject {
     /// Anchored mode (pinned or opened from the keyboard) rests next to the words.
     private var cursorMode = false
     private var cursorHidden = false
+    /// The line fragment under the pointer: the explanation opens just below it.
+    private var pointerLine: CGRect = .zero
     private var flipX = false
     private var flipY = false
 
@@ -119,6 +121,13 @@ final class AnnotationPresentation: NSObject, ObservableObject {
         if change != nil && reduced == false && state == .idle { armStart = CACurrentMediaTime() }
         let pointer = screenPoint ?? AnnotationPointer.location
         self.pointer = pointer
+        // Reaching into the explanation (which may lie over other words) holds it still for
+        // reading; it must never move away from someone trying to reach it.
+        if state.isPresented && state != .retracting && containsInBody(pointer) {
+            hoverWork?.cancel(); armingID = nil
+            pointerEnteredBubble()
+            return
+        }
         guard let change else {
             hoverWork?.cancel(); armingID = nil
             if state == .arming { state = .idle; startTicking() }
@@ -142,8 +151,9 @@ final class AnnotationPresentation: NSObject, ObservableObject {
         let expected = generation
         armingID = change.id
         if state == .idle { state = .arming; armStart = CACurrentMediaTime() }
-        // Already shown: morph at once. First touch: a short beat avoids flashes while crossing text.
-        let delay = state.isPresented ? 0.0 : 0.05
+        // Already shown: morph at once. First touch: a short beat of intent (the words already
+        // light up) avoids flashes while the pointer only crosses the text.
+        let delay = state.isPresented ? 0.0 : AnnotationTuning.hoverDelay
         let work = DispatchWorkItem { [weak self] in
             guard let self, self.generation == expected, self.armingID == change.id else { return }
             self.open(change, pin: false)
@@ -169,15 +179,19 @@ final class AnnotationPresentation: NSObject, ObservableObject {
         if reduced { pointerVelocity = .zero }
         anchor = AnnotationGeometry.union(fragments)
         attach = AnnotationGeometry.facing(fragments, below: prefersBelow ?? true)
+        pointerLine = AnnotationGeometry.nearestRect(fragments, to: pointer) ?? anchor
         if state == .reading { state = .following }
+        // While it follows, clicks and selection fall through to the words underneath.
+        if cursorMode { panel?.ignoresMouseEvents = true }
         retargetToCursor()
         startTicking()
     }
 
     private func retargetToCursor() {
         if cursorMode {
-            lens.tipX.retarget(pointer.x, AnnotationTuning.cursorTip)
-            lens.tipY.retarget(pointer.y, AnnotationTuning.cursorTip)
+            let tip = cursorTip(pointer)
+            lens.tipX.retarget(tip.x, AnnotationTuning.cursorTip)
+            lens.tipY.retarget(tip.y, AnnotationTuning.cursorTip)
             let target = cursorFrame(pointer)
             let lead = state == .morphing ? AnnotationTuning.morphGrow : AnnotationTuning.cursorLead
             let trail = state == .morphing ? AnnotationTuning.morphShrink : AnnotationTuning.cursorTrail
@@ -201,6 +215,8 @@ final class AnnotationPresentation: NSObject, ObservableObject {
         closeWork?.cancel()
         guard state == .forming || state == .following || state == .morphing else { return }
         state = .reading
+        // Now it is something to read and select: it takes the pointer.
+        panel?.ignoresMouseEvents = false
         holdPosition()
     }
 
@@ -218,10 +234,15 @@ final class AnnotationPresentation: NSObject, ObservableObject {
 
     /// Mouse movement anywhere in the app while the lens is shown.
     func trackPointer(_ point: CGPoint) {
-        guard state.isPresented, state != .pinned, state != .retracting, !cursorMode else { return }
+        guard state.isPresented, state != .pinned, state != .retracting else { return }
         if containsInBody(point) { pointerEnteredBubble() }
         else if AnnotationGeometry.transitionContains(point, anchor: anchor, body: bodyScreenFrame) { closeWork?.cancel() }
         else { scheduleClose() }
+    }
+
+    private func pointerOnWords(_ point: CGPoint) -> Bool {
+        guard let change = activeChange, let textView else { return false }
+        return textView.screenFragments(for: change).contains { $0.insetBy(dx: -4, dy: -3).contains(point) }
     }
 
     private func containsInBody(_ point: CGPoint) -> Bool {
@@ -234,21 +255,20 @@ final class AnnotationPresentation: NSObject, ObservableObject {
         // A pending close keeps its deadline; continued movement outside must not postpone it.
         if let closeWork, !closeWork.isCancelled { return }
         let expected = generation
-        let following = cursorMode
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.closeWork = nil
             guard self.generation == expected else { return }
-            if !following {
-                let point = AnnotationPointer.location
-                guard !self.containsInBody(point),
-                      !AnnotationGeometry.transitionContains(point, anchor: self.anchor, body: self.bodyScreenFrame) else { return }
-            }
+            // Only the real pointer position decides. A "mouse left" report alone (for example
+            // when the explanation appears under a still pointer) never closes it.
+            let point = AnnotationPointer.location
+            guard !self.containsInBody(point),
+                  !self.pointerOnWords(point),
+                  !AnnotationGeometry.transitionContains(point, anchor: self.anchor, body: self.bodyScreenFrame) else { return }
             self.close()
         }
         closeWork = work
-        // A cursor bubble leaves almost at once; a resting one keeps a forgiving corridor.
-        DispatchQueue.main.asyncAfter(deadline: .now() + (following ? 0.12 : AnnotationTuning.leaveTolerance), execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + AnnotationTuning.leaveTolerance, execute: work)
     }
 
     // MARK: - Opening, morphing, pinning
@@ -277,12 +297,11 @@ final class AnnotationPresentation: NSObject, ObservableObject {
         inlineChangeID = nil
         activeChange = change
         onHelpUsed?()
-        // The bubble blooms out of the spot where the pointer touched the words, then rests
-        // beside them as a calm card. It no longer rides on the cursor: a panel under the
-        // pointer made the words report "mouse left" and closed the bubble whenever you held still.
+        // Hovered words: the explanation opens right at the pointer, a small pocket of meaning
+        // just below and beside it. Pinning or the keyboard rest it next to the words instead.
         let pointerOnWords = fragments.contains { $0.insetBy(dx: -6, dy: -6).contains(pointer) }
-        let bloomFromPointer = !pin && pointerOnWords && !wasVisible
-        cursorMode = false
+        if !wasVisible || !cursorMode { cursorMode = !pin && pointerOnWords }
+        pointerLine = AnnotationGeometry.nearestRect(fragments, to: pointer) ?? fragment
         if !wasVisible { flipX = false; flipY = false }
         bubbleState.pinned = pin
         bubbleState.fontSize = min(20, max(16, textView.displayFontSize - 1))
@@ -309,9 +328,10 @@ final class AnnotationPresentation: NSObject, ObservableObject {
         glowTowardMaxY = prefersBelow ?? true
         let (targetPanel, targetCanvas) = ensurePanel(parent)
         targetPanel.appearance = parent.appearance
-        // The cursor bubble lets every mouse event fall through to the words underneath.
+        // While it follows, every mouse event falls through to the words underneath.
+        // The system pointer always stays visible.
         targetPanel.ignoresMouseEvents = cursorMode
-        setCursorHidden(cursorMode && !reduced)
+        setCursorHidden(false)
         if let host {
             let crossfade = wasVisible && textAlpha > 0.05
             targetCanvas.install(host, size: targetSize, transitioning: crossfade)
@@ -319,11 +339,9 @@ final class AnnotationPresentation: NSObject, ObservableObject {
             outgoingAlpha = outgoingAlphaStart
             textAlpha = 0
         }
-        let tip = bloomFromPointer ? pointer : AnnotationGeometry.connectionPoint(anchor: attach, pointer: pointer, body: baseFrame)
+        let tip = cursorMode ? cursorTip(pointer) : AnnotationGeometry.connectionPoint(anchor: attach, pointer: pointer, body: baseFrame)
         if !wasVisible {
-            beginFormation(tip: tip, fromPointer: bloomFromPointer)
-            // The pointer turns into the bubble: it hides until the mouse moves again.
-            if bloomFromPointer && !reduced { NSCursor.setHiddenUntilMouseMoves(true) }
+            beginFormation(tip: tip)
         } else if reversing {
             state = .forming
             lens.retarget(baseFrame, lead: AnnotationTuning.formLead, trail: AnnotationTuning.formTrail)
@@ -348,10 +366,10 @@ final class AnnotationPresentation: NSObject, ObservableObject {
     }
 
     /// Kern → Hals → Körper: the body starts as a droplet just outside the words.
-    private func beginFormation(tip: CGPoint, fromPointer: Bool = false) {
+    private func beginFormation(tip: CGPoint) {
         let size = AnnotationTuning.nucleus
         let below = prefersBelow ?? true
-        let nucleus = cursorMode || fromPointer
+        let nucleus = cursorMode
             ? CGRect(x: tip.x - size / 2, y: tip.y - size / 2, width: size, height: size)
             : CGRect(x: tip.x - size / 2, y: below ? tip.y - 2 - size : tip.y + 2, width: size, height: size)
         lens = AnnotationLensMotion(frame: reduced ? baseFrame : nucleus, tip: tip)
@@ -363,7 +381,8 @@ final class AnnotationPresentation: NSObject, ObservableObject {
         textAlpha = 0
         state = .forming
         if cursorMode {
-            lens.retarget(baseFrame, lead: AnnotationTuning.cursorPop, trail: AnnotationTuning.cursorPop)
+            // The edge nearest the reading direction leads; the rest follows with one small overshoot.
+            lens.retarget(baseFrame, lead: AnnotationTuning.cursorPopLead, trail: AnnotationTuning.cursorPopTrail)
         } else {
             lens.retarget(baseFrame, lead: AnnotationTuning.formLead, trail: AnnotationTuning.formTrail)
         }
@@ -747,9 +766,10 @@ final class AnnotationPresentation: NSObject, ObservableObject {
         let shape = AnnotationLensShape.make(AnnotationLensForm(
             body: localBody, roundness: lens.roundness.value, tip: localTip, neckWidth: lens.neck.value,
             lean: CGVector(dx: lens.leanX.value, dy: lens.leanY.value),
-            ripple: reduced || cursorMode ? 0 : 1.8 * lens.energy, ripplePhase: ripplePhase))
+            ripple: reduced || cursorMode ? 0 : 1.8 * lens.energy, ripplePhase: ripplePhase,
+            weight: min(localBody.width, localBody.height) > 60 ? 3 : 0))
         let scale = panel.backingScaleFactor
-        let rise = reduced ? 0 : (1 - textAlpha) * 5
+        let rise = reduced ? 0 : (1 - textAlpha) * 2.5
         let textOrigin = CGPoint(x: ((lens.textX.value - targetSize.width / 2 - origin.x) * scale).rounded() / scale,
                                  y: ((lens.textY.value - targetSize.height / 2 - origin.y - rise) * scale).rounded() / scale)
         let tension = min(1, hypot(pointerVelocity.width, pointerVelocity.height) / 1600 + lens.energy * 0.6)
@@ -759,24 +779,35 @@ final class AnnotationPresentation: NSObject, ObservableObject {
             rim: max(0, lens.rim.value), lift: lens.lift.value, tension: reduced ? 0 : tension,
             motion: CGVector(dx: pointerVelocity.width, dy: pointerVelocity.height),
             incomingOrigin: textOrigin, incomingAlpha: textAlpha, outgoingAlpha: outgoingAlpha,
-            cursorDot: cursorMode && state != .retracting))
+            cursorDot: false))
         panel.alphaValue = min(1, max(0, lens.presence.value))
     }
 
     // MARK: - Cursor bubble geometry
 
-    /// Below and right of the pointer, so the pointer is the bubble's tip. Near an edge it
-    /// flips once and keeps that side until there is clearly room again (no flicker).
+    /// The explanation sits just under the hovered line, its text starting ~16 pt right of the
+    /// pointer's hotspot, so the arrow never covers the first letters. Near an edge it flips
+    /// once and keeps that side until there is clearly room again (no flicker).
     private func cursorFrame(_ point: CGPoint) -> CGRect {
-        let width = targetSize.width, height = targetSize.height, gap: CGFloat = 18
-        if flipX { if point.x + gap + width < boundary.maxX - 60 { flipX = false } }
-        else if point.x + gap + width > boundary.maxX { flipX = true }
-        if flipY { if point.y - gap - height > boundary.minY + 60 { flipY = false } }
-        else if point.y - gap - height < boundary.minY { flipY = true }
-        let frame = CGRect(x: flipX ? point.x - gap - width : point.x + gap,
-                           y: flipY ? point.y + gap : point.y - gap - height,
+        let width = targetSize.width, height = targetSize.height
+        let line = pointerLine == .zero ? CGRect(x: point.x, y: point.y - 10, width: 1, height: 20) : pointerLine
+        let inset = AnnotationTuning.cursorTextInset, gap = AnnotationTuning.cursorLineGap
+        let rightOfPointer = point.x - inset + width
+        if flipX { if rightOfPointer < boundary.maxX - 60 { flipX = false } }
+        else if rightOfPointer > boundary.maxX { flipX = true }
+        let belowTop = min(point.y - 6, line.minY - gap)
+        if flipY { if belowTop - height > boundary.minY + 60 { flipY = false } }
+        else if belowTop - height < boundary.minY { flipY = true }
+        let frame = CGRect(x: flipX ? point.x + inset - width : point.x - inset,
+                           y: flipY ? max(point.y + 6, line.maxY + gap) : belowTop - height,
                            width: width, height: height)
         return AnnotationGeometry.clamp(frame, inside: boundary)
+    }
+
+    /// Where the gentle shoulder reaches: just beside the hotspot, never under it.
+    private func cursorTip(_ point: CGPoint) -> CGPoint {
+        let line = pointerLine == .zero ? CGRect(x: point.x, y: point.y - 10, width: 1, height: 20) : pointerLine
+        return CGPoint(x: point.x + (flipX ? -4 : 4), y: flipY ? max(point.y + 3, line.maxY - 2) : min(point.y - 3, line.minY + 2))
     }
 
     private func setCursorHidden(_ hidden: Bool) {

@@ -500,9 +500,12 @@ private struct AnnotationExplanation: View {
     let pin: () -> Void
     var compare: (() -> Void)? = nil
     var focusOnOpen = true
-    /// White type on the blue bubble; actions only once the bubble is pinned.
+    /// Inside the milky explanation surface (not inline); actions only once it is pinned.
     var onBlue = false
-    private var ink: Color { onBlue ? .white : .sinnAnnotation }
+    /// Learning blue for the heading and controls: it ties the explanation to its blue words.
+    private var ink: Color { .sinnAnnotation }
+    /// Reading text stays in the interface ink for calm, high-contrast reading.
+    private var bodyInk: Color { onBlue ? .sinnInk : .sinnAnnotation }
     /// The following bubble is read-only; buttons appear once it is pinned.
     private var showsActions: Bool { !onBlue || pinned }
     @FocusState private var closeFocused: Bool
@@ -533,7 +536,7 @@ private struct AnnotationExplanation: View {
                 .foregroundStyle(ink)
                 .fixedSize(horizontal: false, vertical: true)
             Text(change.explanation)
-                .foregroundStyle(ink)
+                .foregroundStyle(bodyInk)
                 .lineSpacing(4)
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
@@ -543,13 +546,13 @@ private struct AnnotationExplanation: View {
                         .font(.system(size: 11, weight: .medium)).foregroundStyle(ink)
                     Text(original)
                         .font(.system(size: 13))
-                        .foregroundStyle(ink)
+                        .foregroundStyle(onBlue ? Color.sinnMuted : ink)
                         .lineLimit(4)
                         .textSelection(.enabled)
                 }
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(onBlue ? Color.white.opacity(0.14) : Color.white.opacity(0.62), in: RoundedRectangle(cornerRadius: 10))
+                .background(onBlue ? Color.sinnAnnotationWash : Color.white.opacity(0.62), in: RoundedRectangle(cornerRadius: 10))
             }
             if showsActions, let ruleID = change.ruleID, let rule = RuleRegistry.lookup(ruleID) {
                 Link("Mehr erfahren", destination: rule.sourceURL)
@@ -572,7 +575,7 @@ private struct AnnotationExplanation: View {
             if !pinned && onBlue {
                 Label("Klicken zum Festhalten", systemImage: "cursorarrow.click")
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(ink.opacity(0.7))
+                    .foregroundStyle(Color.sinnMuted)
             } else if !pinned {
                 Button(action: pin) {
                     Label("Erklärung festhalten", systemImage: "pin")

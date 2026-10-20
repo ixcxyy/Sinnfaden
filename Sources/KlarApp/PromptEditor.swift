@@ -13,6 +13,12 @@ struct CapturedWord: Identifiable, Equatable {
 final class PromptEditorHandle {
     fileprivate weak var textView: PromptNSTextView?
 
+    /// Hides the typed words in the same frame their flying copies appear (the draft itself
+    /// is untouched). Done directly, because the start page is already on its way out.
+    func setTextHidden(_ hidden: Bool) {
+        textView?.alphaValue = hidden ? 0 : 1
+    }
+
     func capturedWords(limit: Int = 80) -> [CapturedWord] {
         guard let textView, let layout = textView.layoutManager, let container = textView.textContainer,
               let root = textView.window?.contentView else { return [] }

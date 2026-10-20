@@ -15,6 +15,9 @@ struct AnnotationLensForm {
     /// Surface-tension ripple amplitude (points). Zero at rest.
     var ripple: CGFloat = 0
     var ripplePhase: CGFloat = 0
+    /// Settled fullness of the lower edge (points): the surface hangs with a little weight,
+    /// fuller toward the lower right. Zero keeps the plain contour.
+    var weight: CGFloat = 0
 }
 
 /// One continuous outline for the lens body and its neck. Mask, fill, rim,
@@ -120,6 +123,10 @@ struct AnnotationLensShape {
             if leanLength > 0.01 {
                 let facing = (sample.normal.dx * form.lean.dx + sample.normal.dy * form.lean.dy) / leanLength
                 offset += facing > 0 ? leanLength * facing * facing : -0.45 * leanLength * facing * facing
+            }
+            if form.weight > 0 {
+                let down = max(0, -sample.normal.dy), right = max(0, sample.normal.dx)
+                offset += form.weight * (down * down + 0.35 * right * down)
             }
             offset *= 1 - g
             return CGPoint(x: sample.point.x + sample.normal.dx * offset + pull.dx * g,
