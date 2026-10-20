@@ -28,6 +28,45 @@ final class SecureStorageTests: XCTestCase {
         catch { XCTAssertTrue(error is CancellationError) }
     }
 
+    func testCancellationCompletesWithoutWaitingForTheSecureStorageRead() async throws {
+        let started = expectation(description: "Secure storage read started")
+        let cancelled = expectation(description: "Caller returned before the read was released")
+        let readFinished = expectation(description: "Background read finished independently")
+        let release = DispatchSemaphore(value: 0)
+        let store = SecureStorage(readData: { _ in
+            started.fulfill()
+            _ = release.wait(timeout: .now() + 5)
+            defer { readFinished.fulfill() }
+            return Data(#""synthetic-late-value""#.utf8)
+        })
+        let caller = Task {
+            do {
+                _ = try await store.load(String.self, account: "synthetic-account")
+                XCTFail("Cancellation must not return credentials")
+            } catch { XCTAssertTrue(error is CancellationError) }
+            cancelled.fulfill()
+        }
+        await fulfillment(of: [started], timeout: 1)
+        caller.cancel()
+        await fulfillment(of: [cancelled], timeout: 0.5)
+        release.signal()
+        await fulfillment(of: [readFinished], timeout: 1)
+        await caller.value
+    }
+
+    func testAlreadyCancelledCallDoesNotStartSecureStorageAccess() async throws {
+        let store = SecureStorage(readData: { _ in
+            XCTFail("An already cancelled request must not start a permission operation")
+            return nil
+        })
+        let caller = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try await store.load(String.self, account: "synthetic-account")
+        }
+        do { _ = try await caller.value; XCTFail("An already cancelled call must throw") }
+        catch { XCTAssertTrue(error is CancellationError) }
+    }
+
     func testMissingAndInvalidStoredValuesRemainDistinct() async throws {
         let missing = SecureStorage(readData: { _ in nil })
         let value = try await missing.load(String.self, account: "synthetic-account")

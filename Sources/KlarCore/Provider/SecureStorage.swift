@@ -19,11 +19,15 @@ struct SecureStorage: Sendable {
     func load<T: Decodable & Sendable>(_ type: T.Type, account: String) async throws -> T? {
         try Task.checkCancellation()
         // Security may wait for a permission dialog. Do not block MainActor or Swift's cooperative pool.
-        let data: Data? = try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                continuation.resume(with: Result { try read(account: account) })
+        let completion = SecureReadCompletion()
+        let data: Data? = try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                guard completion.install(continuation) else { return }
+                DispatchQueue.global(qos: .userInitiated).async {
+                    completion.resolve(Result { try read(account: account) })
+                }
             }
-        }
+        } onCancel: { completion.resolve(.failure(CancellationError())) }
         try Task.checkCancellation()
         guard let data else { return nil }
         return try JSONDecoder().decode(type, from: data)
@@ -42,6 +46,36 @@ struct SecureStorage: Sendable {
         guard result == errSecSuccess || result == errSecItemNotFound else { throw failure }
     }
     private var failure: ProviderFailure { .init(.storage, "Der macOS-Schlüsselbund ist nicht zugänglich. Bitte entsperre ihn und versuche es erneut.") }
+}
+
+/// Cancellation releases the caller without cancelling or bypassing the macOS permission operation.
+/// The read and cancellation may finish concurrently; only one resumes the waiting continuation.
+private final class SecureReadCompletion: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Data?, Error>?
+    private var result: Result<Data?, Error>?
+
+    func install(_ continuation: CheckedContinuation<Data?, Error>) -> Bool {
+        lock.lock()
+        if let result {
+            lock.unlock()
+            continuation.resume(with: result)
+            return false
+        }
+        self.continuation = continuation
+        lock.unlock()
+        return true
+    }
+
+    func resolve(_ result: Result<Data?, Error>) {
+        lock.lock()
+        guard self.result == nil else { lock.unlock(); return }
+        self.result = result
+        let continuation = self.continuation
+        self.continuation = nil
+        lock.unlock()
+        continuation?.resume(with: result)
+    }
 }
 
 struct RegistrationStore: Codable {
