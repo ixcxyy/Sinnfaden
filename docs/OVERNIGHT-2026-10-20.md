@@ -13,12 +13,13 @@ Claude may be used through its Mac app for necessary design work with a focused 
 - At 06:00, stop adding scope and prioritize tests, review, release, actual update installation and documentation. At 06:30, stop new edits, finish any already-running publication transaction safely, report actual results, and pause both automations.
 - An idle-sleep prevention process was started for this night. The Mac must remain powered with lid open and Codex running. Do not promise execution while the machine is asleep or disconnected.
 
-## Latest status (05:41 Vienna)
+## Latest status (05:56 Vienna)
 
 - Twenty-three code batches are pushed; source is unchanged since `6977f5a`. The final archive and all 196 passing automated checks are recorded in [the release handoff](RELEASE-0.4.3.md). Preserve `Candidate-final`, `Release-final`, `Site-final` and their verification evidence.
-- The isolated six-batch installer still has not finished: target build 6, PIDs 84440/84441 alive after 291 minutes. Do not interrupt its replacement transaction or start an overlapping installer for the same app. The final archive requires its own successful real installation afterward.
+- The isolated six-batch installer still has not finished: target build 6, PIDs 84440/84441 alive after 306 minutes. Do not interrupt its replacement transaction or start an overlapping installer for the same app. The final archive requires its own successful real installation afterward.
 - The live account is still unverified and the production feed remains 0.4.2. No publication, token change, account change or paid service is needed or authorized as a workaround.
 - The preceding pass inspected update-check preferences, confirmation settings and report scheduling without establishing another defect. This pass confirmed that only documentation has changed since the final build, and all three signed files and staged copies still match their recorded bytes. Both automations remain active with the overnight end at 04:30 UTC and the handoff at 06:30 Vienna; pause both at the deadline. Continue installation checks and final documentation; avoid repeating the already passing suites without new evidence.
+- At 05:56 the live relay again acknowledged the existing synthetic setup fingerprint with HTTP 200 / `accepted: true` (`Artifacts/overnight-final-relay-live.json`). The public appcast was fetched and its actual Sparkle signature verified; it still lists only 0.4.2/build 6 (`Artifacts/overnight-final-live-appcast.xml`). No deployment or release-version change occurred. Remaining work is the installation gate and final handoff.
 
 ## Starting state
 
